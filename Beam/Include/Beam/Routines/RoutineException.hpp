@@ -8,7 +8,7 @@ namespace Beam {
 namespace Routines {
 
   /*! \class RoutineException
-      \brief Used to indicate an exception occured regarding a Routine.
+      \brief Used to indicate an exception occurred regarding a Routine.
    */
   class RoutineException : public std::runtime_error, public boost::exception {
     public:
@@ -22,7 +22,7 @@ namespace Routines {
 
 
   inline RoutineException::RoutineException(const std::string& message)
-    : std::runtime_error(message) {}
+      : std::runtime_error{message} {}
 }
 }
 

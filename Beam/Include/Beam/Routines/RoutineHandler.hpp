@@ -15,7 +15,7 @@ namespace Routines {
     public:
 
       //! Constructs a RoutineHandler.
-      RoutineHandler();
+      RoutineHandler() = default;
 
       //! Constructs a RoutineHandler.
       /*!
@@ -67,14 +67,11 @@ namespace Routines {
       });
   }
 
-  inline RoutineHandler::RoutineHandler()
-      : m_id(0) {}
-
   inline RoutineHandler::RoutineHandler(Routine::Id id)
-      : m_id(id) {}
+      : m_id{std::move(id)} {}
 
   inline RoutineHandler::RoutineHandler(RoutineHandler&& routineHandler)
-      : m_id(routineHandler.m_id) {
+      : m_id{routineHandler.m_id} {
     routineHandler.Detach();
   }
 
@@ -87,7 +84,7 @@ namespace Routines {
       return *this;
     }
     Wait();
-    m_id = id;
+    m_id = std::move(id);
     return *this;
   }
 
@@ -102,15 +99,15 @@ namespace Routines {
   }
 
   inline void RoutineHandler::Detach() {
-    m_id = 0;
+    m_id = RoutineId{};
   }
 
   inline void RoutineHandler::Wait() {
-    if(m_id == 0) {
+    if(m_id == RoutineId{}) {
       return;
     }
-    Details::Scheduler::GetInstance().Wait(m_id);
-    m_id = 0;
+    Routines::Wait(m_id);
+    m_id = RoutineId{};
   }
 }
 }

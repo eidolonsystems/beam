@@ -7,6 +7,7 @@
 #include <boost/atomic/atomic.hpp>
 #include <boost/noncopyable.hpp>
 #include "Beam/Routines/Async.hpp"
+#include "Beam/Routines/RoutineId.hpp"
 #include "Beam/Routines/Routines.hpp"
 #include "Beam/Pointers/Out.hpp"
 #include "Beam/Pointers/Ref.hpp"
@@ -34,19 +35,8 @@ namespace Details {
   };
 
   template<typename T>
-  struct NextId {
-    static boost::atomic<std::uint64_t> m_value;
-
-    static boost::atomic<std::uint64_t>& GetInstance() {
-      return m_value;
-    }
-  };
-
-  template<typename T>
   BEAM_THREADLOCAL Routine* CurrentRoutineGlobal<T>::m_value;
 
-  template<typename T>
-  boost::atomic<std::uint64_t> NextId<T>::m_value;
 #elif defined(BEAM_BUILD_DLL)
   template<typename T>
   struct CurrentRoutineGlobal {
@@ -56,22 +46,10 @@ namespace Details {
     }
   };
 
-  template<typename T>
-  struct NextId {
-    static boost::atomic<std::uint64_t>& GetInstance() {
-      static boost::atomic<std::uint64_t> value;
-      return value;
-    }
-  };
 #elif defined(BEAM_USE_DLL)
   template<typename T>
   struct CurrentRoutineGlobal {
     static Routine*& GetInstance();
-  };
-
-  template<typename T>
-  struct NextId {
-    static boost::atomic<std::uint64_t>& GetInstance();
   };
 #endif
 }
@@ -104,12 +82,12 @@ namespace Details {
       };
 
       //! The type used to identify a Routine.
-      using Id = std::uint64_t;
+      using Id = RoutineId;
+
+      //! Constructs a Routine.
+      Routine();
 
       virtual ~Routine();
-
-      //! Returns this Routine's identifier.
-      Id GetId() const;
 
       //! Returns the State of this Routine.
       State GetState() const;
@@ -119,11 +97,6 @@ namespace Details {
         \param result Used to signal completion of this Routine.
       */
       void Wait(Eval<void> result);
-
-    protected:
-
-      //! Constructs a Routine.
-      Routine();
 
       //! Implements the body of this Routine.
       virtual void Execute() = 0;
@@ -139,8 +112,6 @@ namespace Details {
 
       //! Resumes execution of a Routine.
       virtual void Resume() = 0;
-
-    protected:
 
       //! Sets the State.
       void SetState(State state);
@@ -160,7 +131,6 @@ namespace Details {
       template<typename Container>
       friend void Resume(Out<Threading::Sync<Container>>);
       State m_state;
-      Id m_id;
       Threading::Sync<WaitResults> m_waitResults;
   };
 
@@ -177,12 +147,6 @@ namespace Details {
   inline void Defer() {
     GetCurrentRoutine().Defer();
   }
-
-  //! Waits for a Routine to complete.
-  /*!
-    \param id The id of the Routine to wait for.
-  */
-  void Wait(Routine::Id id);
 
   //! Suspends the currently running Routine.
   inline void Suspend() {
@@ -277,6 +241,9 @@ namespace Details {
     }
   }
 
+  inline Routine::Routine()
+      : m_state{State::PENDING} {}
+
   inline Routine::~Routine() {
     Threading::With(m_waitResults,
       [&] (WaitResults& waitResults) {
@@ -286,10 +253,6 @@ namespace Details {
         waitResults.clear();
       });
     assert(m_state == State::COMPLETE || m_state == State::PENDING);
-  }
-
-  inline Routine::Id Routine::GetId() const {
-    return m_id;
   }
 
   inline Routine::State Routine::GetState() const {
@@ -306,10 +269,6 @@ namespace Details {
   inline void Routine::SetState(State state) {
     m_state = state;
   }
-
-  inline Routine::Routine()
-      : m_id(++Details::NextId<void>::GetInstance()),
-        m_state(State::PENDING) {}
 
   inline void Routine::Defer() {}
 

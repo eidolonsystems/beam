@@ -257,7 +257,7 @@ int main() {
           routines.Spawn(
             [&] {
               ++count;
-              cout << "Start: " << count << endl;
+              printf("Start: %d\n", count.load());
               ApplicationClientHandler clientHandler{
                 Initialize(
                 [&] {
@@ -290,7 +290,7 @@ int main() {
                 timer.Wait();
               }
               --count;
-              cout << "Stop: " << count << endl;
+              printf("Stop: %d\n", count.load());
               clientHandler.Close();
             });
         }

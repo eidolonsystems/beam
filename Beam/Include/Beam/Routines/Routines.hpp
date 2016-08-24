@@ -12,7 +12,9 @@ namespace Routines {
   class Routine;
   class RoutineException;
   class RoutineHandler;
+  class RoutineId;
   class ScheduledRoutine;
+  class TerminateRoutine;
 namespace Details {
   class Scheduler;
 }

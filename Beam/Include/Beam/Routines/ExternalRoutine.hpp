@@ -40,13 +40,15 @@ namespace Routines {
   }
 
   inline ExternalRoutine::ExternalRoutine()
-      : m_isPendingResume(false) {}
+      : m_isPendingResume{false} {}
 
   inline void ExternalRoutine::Execute() {
     SetState(State::RUNNING);
   }
 
-  inline void ExternalRoutine::Defer() {}
+  inline void ExternalRoutine::Defer() {
+    boost::this_thread::yield();
+  }
 
   inline void ExternalRoutine::PendingSuspend() {
     SetState(State::PENDING_SUSPEND);
@@ -65,20 +67,23 @@ namespace Routines {
   }
 
   inline void ExternalRoutine::Resume() {
-    boost::lock_guard<boost::mutex> lock(m_mutex);
-    if(GetState() == State::PENDING_SUSPEND) {
-      m_isPendingResume = true;
-      return;
+    {
+      boost::lock_guard<boost::mutex> lock{m_mutex};
+      if(GetState() == State::PENDING_SUSPEND) {
+        m_isPendingResume = true;
+        return;
+      }
+      assert(GetState() == State::SUSPENDED);
+      SetState(State::RUNNING);
     }
-    assert(GetState() == State::SUSPENDED);
-    SetState(State::RUNNING);
-    m_suspendedCondition.notify_one();
+    m_suspendedCondition.notify_all();
   }
 
   inline Routine& GetCurrentRoutine() {
     auto routine = Details::CurrentRoutineGlobal<void>::GetInstance();
     if(routine == nullptr) {
       routine = new ExternalRoutine();
+      routine->Execute();
       Details::CurrentRoutineGlobal<void>::GetInstance() = routine;
     }
     return *routine;

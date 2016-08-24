@@ -50,7 +50,7 @@ namespace Routines {
   }
 
   inline void RoutineHandlerGroup::Add(RoutineHandler&& handler) {
-    boost::lock_guard<boost::mutex> lock(m_mutex);
+    boost::lock_guard<boost::mutex> lock{m_mutex};
     m_routines.push_back(std::move(handler));
   }
 
@@ -67,7 +67,7 @@ namespace Routines {
   inline void RoutineHandlerGroup::Wait() {
     std::vector<RoutineHandler> routines;
     {
-      boost::lock_guard<boost::mutex> lock(m_mutex);
+      boost::lock_guard<boost::mutex> lock{m_mutex};
       routines.swap(m_routines);
     }
   }
