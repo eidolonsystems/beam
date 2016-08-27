@@ -14,6 +14,7 @@ namespace Routines {
   class RoutineHandler;
   class RoutineId;
   class ScheduledRoutine;
+  struct SuspendedRoutineNode;
   class TerminateRoutine;
 namespace Details {
   class Scheduler;
