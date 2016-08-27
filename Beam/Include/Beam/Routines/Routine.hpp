@@ -191,10 +191,6 @@ namespace Details {
   }
 
   inline Routine::Routine()
-      : m_id(++Details::NextId<void>::GetInstance()),
-        m_state(State::PENDING) {}
-
-  inline Routine::Routine()
       : m_state{State::PENDING} {}
 
   inline Routine::~Routine() {

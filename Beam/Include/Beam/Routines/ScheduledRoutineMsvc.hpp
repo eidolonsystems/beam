@@ -74,7 +74,7 @@ namespace Routines {
         throw RoutineException{"Routine aborted."};
       }
       SetState(State::RUNNING);
-      m_fiber = CreateFiber(m_stackSize,
+      m_fiber = CreateFiberEx(m_stackSize, m_stackSize, FIBER_FLAG_FLOAT_SWITCH,
         ScheduledRoutine::Win32InitializeRoutine, this);
       if(m_fiber == nullptr) {
         auto errorCode = GetLastError();
