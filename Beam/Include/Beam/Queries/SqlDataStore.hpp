@@ -62,23 +62,14 @@ namespace Queries {
       //! Constructs an SqlDataStore.
       /*!
         \param connectionPool The pool used to acquire SQL connections.
-        \param readConnection Used to perform high priority reads.
         \param writeConnection Used to perform high priority writes.
         \param threadPool Used to perform asynchronous reads and writes.
         \param functor Initializes the Functor.
       */
       SqlDataStore(Beam::RefType<MySql::DatabaseConnectionPool> connectionPool,
-        Beam::RefType<Threading::Sync<mysqlpp::Connection>> readConnection,
-        Beam::RefType<Threading::Sync<mysqlpp::Connection>> writeConnection,
-        Beam::RefType<Threading::ThreadPool> threadPool,
+        Beam::RefType<Threading::Sync<mysqlpp::Connection, Threading::Mutex>>
+        writeConnection, Beam::RefType<Threading::ThreadPool> threadPool,
         const Functor& functor = Functor());
-
-      //! Loads the initial Sequence to use for a specified index.
-      /*!
-        \param index The index to load the initial Sequence for.
-        \return The initial Sequence to use for the specified <i>index</i>.
-      */
-      Sequence LoadInitialSequence(const Index& index);
 
       //! Executes a search query.
       /*!
@@ -108,12 +99,10 @@ namespace Queries {
 
     private:
       MySql::DatabaseConnectionPool* m_connectionPool;
-      Threading::Sync<mysqlpp::Connection>* m_readConnection;
-      Threading::Sync<mysqlpp::Connection>* m_writeConnection;
+      Threading::Sync<mysqlpp::Connection, Threading::Mutex>* m_writeConnection;
       Threading::ThreadPool* m_threadPool;
       Functor m_functor;
       std::string m_table;
-      Sequence::Ordinal m_sequenceHintInterval;
   };
 
   template<typename QueryType, typename ValueType, typename RowType,
@@ -121,27 +110,14 @@ namespace Queries {
   SqlDataStore<QueryType, ValueType, RowType, SqlTranslatorFilterType,
       FunctorType>::SqlDataStore(
       Beam::RefType<MySql::DatabaseConnectionPool> connectionPool,
-      Beam::RefType<Threading::Sync<mysqlpp::Connection>> readConnection,
-      Beam::RefType<Threading::Sync<mysqlpp::Connection>> writeConnection,
-      Beam::RefType<Threading::ThreadPool> threadPool,
+      Beam::RefType<Threading::Sync<mysqlpp::Connection, Threading::Mutex>>
+      writeConnection, Beam::RefType<Threading::ThreadPool> threadPool,
       const Functor& functor)
-      : m_connectionPool(connectionPool.Get()),
-        m_readConnection(readConnection.Get()),
-        m_writeConnection(writeConnection.Get()),
-        m_threadPool(threadPool.Get()),
-        m_functor(functor),
-        m_table(Row().table()),
-        m_sequenceHintInterval(10000) {}
-
-  template<typename QueryType, typename ValueType, typename RowType,
-    typename SqlTranslatorFilterType, typename FunctorType>
-  Sequence SqlDataStore<QueryType, ValueType, RowType, SqlTranslatorFilterType,
-      FunctorType>::LoadInitialSequence(const Index& index) {
-    return Threading::With(*m_readConnection,
-      [&] (mysqlpp::Connection& connection) {
-        return LoadSqlInitialSequence(m_table, m_functor(index), connection);
-      });
-  }
+      : m_connectionPool{connectionPool.Get()},
+        m_writeConnection{writeConnection.Get()},
+        m_threadPool{threadPool.Get()},
+        m_functor{functor},
+        m_table{Row().table()} {}
 
   template<typename QueryType, typename ValueType, typename RowType,
     typename SqlTranslatorFilterType, typename FunctorType>
@@ -181,7 +157,7 @@ namespace Queries {
     typename SqlTranslatorFilterType, typename FunctorType>
   void SqlDataStore<QueryType, ValueType, RowType, SqlTranslatorFilterType,
       FunctorType>::Store(const std::vector<IndexedValue>& values) {
-    const int MAX_ROW_WRITE = 500;
+    const auto MAX_ROW_WRITE = 500;
     if(values.empty()) {
       return;
     }

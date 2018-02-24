@@ -56,10 +56,13 @@ namespace Beam {
       \tparam ValueType The value associated with the key.
    */
   template<typename KeyType, typename ValueType>
-  class TablePublisher : public Publisher<TableEntry<KeyType, ValueType>>,
+  class TablePublisher : public SnapshotPublisher<
+      TableEntry<KeyType, ValueType>, std::unordered_map<KeyType, ValueType>>,
       public QueueWriter<TableEntry<KeyType, ValueType>> {
     public:
       using Type = typename Publisher<TableEntry<KeyType, ValueType>>::Type;
+      using Snapshot = typename SnapshotPublisher<TableEntry<
+        KeyType, ValueType>, std::unordered_map<KeyType, ValueType>>::Snapshot;
 
       //! The unique index/key into the table.
       using Key = KeyType;
@@ -70,7 +73,7 @@ namespace Beam {
       //! Constructs a TablePublisher.
       TablePublisher() = default;
 
-      virtual ~TablePublisher();
+      virtual ~TablePublisher() override final;
 
       //! Pushes a key/value pair onto the table.
       /*!
@@ -79,19 +82,36 @@ namespace Beam {
       */
       void Push(const Key& key, const Value& value);
 
-      virtual void Lock() const;
+      //! Deletes a key/value pair from the table.
+      /*!
+        \param key The key to delete.
+        \param value The value to publish indicating the value is being deleted.
+      */
+      void Delete(const Key& key, const Value& value);
 
-      virtual void Unlock() const;
+      //! Deletes a key/value pair from the table.
+      /*!
+        \param key The key to delete.
+        \param value The value to publish indicating the value is being deleted.
+      */
+      void Delete(const Type& value);
 
-      virtual void With(const std::function<void ()>& f) const;
+      virtual void WithSnapshot(const std::function<
+        void (boost::optional<const Snapshot&>)>& f) const override final;
 
-      virtual void Monitor(std::shared_ptr<QueueWriter<Type>> monitor) const;
+      virtual void Monitor(std::shared_ptr<QueueWriter<Type>> queue,
+        Out<boost::optional<Snapshot>> snapshot) const override final;
 
-      virtual void Push(const Type& value);
+      virtual void With(const std::function<void ()>& f) const override final;
 
-      virtual void Push(Type&& value);
+      virtual void Monitor(
+        std::shared_ptr<QueueWriter<Type>> monitor) const override final;
 
-      virtual void Break(const std::exception_ptr& e);
+      virtual void Push(const Type& value) override final;
+
+      virtual void Push(Type&& value) override final;
+
+      virtual void Break(const std::exception_ptr& e) override final;
 
       using QueueWriter<TableEntry<KeyType, ValueType>>::Break;
     private:
@@ -117,13 +137,34 @@ namespace Beam {
   }
 
   template<typename KeyType, typename ValueType>
-  void TablePublisher<KeyType, ValueType>::Lock() const {
-    m_mutex.lock();
+  void TablePublisher<KeyType, ValueType>::Delete(const Key& key,
+      const Value& value) {
+    boost::lock_guard<Threading::RecursiveMutex> lock(m_mutex);
+    m_table.erase(key);
+    m_queue.Push(Type(key, value));
   }
 
   template<typename KeyType, typename ValueType>
-  void TablePublisher<KeyType, ValueType>::Unlock() const {
-    m_mutex.unlock();
+  void TablePublisher<KeyType, ValueType>::Delete(const Type& value) {
+    boost::lock_guard<Threading::RecursiveMutex> lock(m_mutex);
+    m_table.erase(value.m_key);
+    m_queue.Push(value);
+  }
+
+  template<typename KeyType, typename ValueType>
+  void TablePublisher<KeyType, ValueType>::WithSnapshot(
+      const std::function<void (boost::optional<const Snapshot&>)>& f) const {
+    boost::lock_guard<Threading::RecursiveMutex> lock(m_mutex);
+    f(m_table);
+  }
+
+  template<typename KeyType, typename ValueType>
+  void TablePublisher<KeyType, ValueType>::Monitor(
+      std::shared_ptr<QueueWriter<Type>> queue,
+      Out<boost::optional<Snapshot>> snapshot) const {
+    boost::lock_guard<Threading::RecursiveMutex> lock(m_mutex);
+    *snapshot = m_table;
+    m_queue.Monitor(queue);
   }
 
   template<typename KeyType, typename ValueType>

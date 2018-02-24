@@ -1,147 +1,113 @@
-#ifndef BEAM_REACTORMONITOR_HPP
-#define BEAM_REACTORMONITOR_HPP
-#include <algorithm>
-#include <exception>
-#include <memory>
-#include <unordered_map>
+#ifndef BEAM_REACTOR_MONITOR_HPP
+#define BEAM_REACTOR_MONITOR_HPP
 #include <vector>
 #include <boost/noncopyable.hpp>
-#include <boost/signals2/signal.hpp>
-#include <boost/thread/locks.hpp>
+#include <boost/thread/mutex.hpp>
 #include "Beam/IO/OpenState.hpp"
 #include "Beam/Queues/RoutineTaskQueue.hpp"
-#include "Beam/Reactors/BaseReactor.hpp"
-#include "Beam/Reactors/Event.hpp"
+#include "Beam/Threading/ConditionVariable.hpp"
+#include "Beam/Reactors/Reactor.hpp"
 #include "Beam/Reactors/Reactors.hpp"
-#include "Beam/Routines/Async.hpp"
-#include "Beam/SignalHandling/ConnectionGroup.hpp"
-#include "Beam/Threading/RecursiveMutex.hpp"
+#include "Beam/Reactors/Trigger.hpp"
 
 namespace Beam {
 namespace Reactors {
 
   /*! \class ReactorMonitor
-      \brief Monitors and updates Reactors.
+      \brief Used to synchronously monitor multiple Reactors.
    */
   class ReactorMonitor : private boost::noncopyable {
     public:
 
-      //! Signals that a Reactor will no longer produce new values.
-      using CompleteSignal = boost::signals2::signal<void ()>;
-
       //! Constructs a ReactorMonitor.
-      ReactorMonitor() = default;
+      ReactorMonitor();
 
       ~ReactorMonitor();
 
-      //! Adds an Event to monitor.
-      /*!
-        \param event The Event to monitor.
-      */
-      void AddEvent(std::shared_ptr<Event> event);
+      //! Returns the Trigger receiving Reactor updates.
+      const Trigger& GetTrigger() const;
+
+      //! Returns the Trigger receiving Reactor updates.
+      Trigger& GetTrigger();
 
       //! Adds a Reactor to monitor.
       /*!
-        \param reactor The Reactor to add.
+        \param reactor The Reactor to monitor.
       */
-      void AddReactor(std::shared_ptr<BaseReactor> reactor);
+      void Add(std::shared_ptr<BaseReactor> reactor);
 
-      //! Connects a slot to a Reactor's CompleteSignal.
+      //! Invokes a callback from within this monitor's event handler.
       /*!
-        \param reactor The Reactor to connect the slot to.
-        \param slot The slot to connect.
-        \return A connection to the specified <i>slot</i>.
+        \param f The callback to invoke.
       */
-      boost::signals2::connection ConnectCompleteSignal(
-        const BaseReactor& reactor,
-        const CompleteSignal::slot_type& slot) const;
+      template<typename F>
+      void Do(F&& f);
+
+      //! Waits for all Reactors to complete.
+      void Wait();
 
       void Open();
 
       void Close();
 
     private:
-      mutable Threading::RecursiveMutex m_mutex;
-      std::vector<std::shared_ptr<Event>> m_events;
-      std::vector<std::shared_ptr<BaseReactor>> m_reactors;
+      mutable boost::mutex m_mutex;
       IO::OpenState m_openState;
-      SignalHandling::ConnectionGroup m_connections;
-      std::vector<BaseReactor*> m_updatedReactors;
-      std::vector<BaseReactor*> m_completedReactors;
-      mutable std::unordered_map<const BaseReactor*, CompleteSignal>
-        m_completeSignals;
-      mutable RoutineTaskQueue m_tasks;
+      Trigger m_trigger;
+      std::vector<std::shared_ptr<BaseReactor>> m_reactors;
+      int m_activeCount;
+      RoutineTaskQueue m_tasks;
+      Threading::ConditionVariable m_waitCondition;
 
       void Shutdown();
-      void Initialize(const std::shared_ptr<BaseReactor>& reactor);
-      void OnEvent(const std::weak_ptr<Event>& event);
-      void OnUpdate(const std::weak_ptr<BaseReactor>& reactor);
+      void OnAdd(std::shared_ptr<BaseReactor> reactor);
+      void OnSequenceNumber(int sequenceNumber);
   };
+
+  inline ReactorMonitor::ReactorMonitor()
+      : m_activeCount{0} {}
 
   inline ReactorMonitor::~ReactorMonitor() {
     Close();
   }
 
-  inline void ReactorMonitor::AddEvent(std::shared_ptr<Event> event) {
-    boost::lock_guard<Threading::RecursiveMutex> lock(m_mutex);
-    auto eventIterator = std::find(m_events.begin(), m_events.end(), event);
-    if(eventIterator != m_events.end()) {
-      return;
-    }
-    m_events.push_back(event);
-    m_connections.AddConnection(event->ConnectEventSignal(
-      std::bind(&ReactorMonitor::OnEvent, this, std::weak_ptr<Event>(event))));
+  inline const Trigger& ReactorMonitor::GetTrigger() const {
+    return m_trigger;
   }
 
-  inline void ReactorMonitor::AddReactor(std::shared_ptr<BaseReactor> reactor) {
-    boost::lock_guard<Threading::RecursiveMutex> lock(m_mutex);
-    auto reactorIterator = std::find(m_reactors.begin(), m_reactors.end(),
-      reactor);
-    if(reactorIterator != m_reactors.end()) {
-      return;
-    }
-    m_reactors.push_back(reactor);
-    if(m_openState.IsOpen()) {
-      Initialize(reactor);
-    }
+  inline Trigger& ReactorMonitor::GetTrigger() {
+    return m_trigger;
   }
 
-  inline boost::signals2::connection ReactorMonitor::ConnectCompleteSignal(
-      const BaseReactor& reactor, const CompleteSignal::slot_type& slot) const {
-    boost::lock_guard<Threading::RecursiveMutex> lock(m_mutex);
-    if(reactor.IsComplete()) {
-      auto delayedSlot = std::make_shared<CompleteSignal>();
-      auto connection = delayedSlot->connect(slot);
-      m_tasks.Push(
-        [=] {
-          (*delayedSlot)();
-        });
-      return connection;
+  inline void ReactorMonitor::Add(std::shared_ptr<BaseReactor> reactor) {
+    {
+      boost::lock_guard<boost::mutex> lock{m_mutex};
+      ++m_activeCount;
     }
-    return m_completeSignals[&reactor].connect(slot);
+    m_tasks.Push(std::bind(&ReactorMonitor::OnAdd, this, reactor));
+  }
+
+  template<typename F>
+  void ReactorMonitor::Do(F&& f) {
+    m_tasks.Push(std::move(f));
+  }
+
+  inline void ReactorMonitor::Wait() {
+    boost::unique_lock<boost::mutex> lock{m_mutex};
+    while(m_activeCount != 0) {
+      m_waitCondition.wait(lock);
+    }
   }
 
   inline void ReactorMonitor::Open() {
     if(m_openState.SetOpening()) {
       return;
     }
-    Routines::Async<void> openToken;
-    m_tasks.Push(
-      [&] {
-        boost::lock_guard<Threading::RecursiveMutex> lock(m_mutex);
-        auto initializedReactors = std::size_t{0};
-        while(initializedReactors != m_reactors.size()) {
-          auto reactors = std::vector<std::shared_ptr<BaseReactor>>(
-            m_reactors.begin() + initializedReactors, m_reactors.end());
-          for(auto& reactor : reactors) {
-            ++initializedReactors;
-            Initialize(reactor);
-          }
-        }
-        m_openState.SetOpen();
-        openToken.GetEval().SetResult();
-      });
-    openToken.Get();
+    m_trigger.GetSequenceNumberPublisher().Monitor(m_tasks.GetSlot<int>(
+      std::bind(&ReactorMonitor::OnSequenceNumber, this,
+      std::placeholders::_1)));
+    m_tasks.Push(std::bind(&ReactorMonitor::OnSequenceNumber, this, 0));
+    m_openState.SetOpen();
   }
 
   inline void ReactorMonitor::Close() {
@@ -152,68 +118,45 @@ namespace Reactors {
   }
 
   inline void ReactorMonitor::Shutdown() {
-    Routines::Async<void> closeToken;
-    m_tasks.Push(
-      [&] {
-        m_reactors.clear();
-        m_events.clear();
-        m_connections.DisconnectAll();
-        closeToken.GetEval().SetResult();
-      });
-    closeToken.Get();
+    m_tasks.Break();
+    m_tasks.Wait();
     m_openState.SetClosed();
   }
 
-  inline void ReactorMonitor::Initialize(
-      const std::shared_ptr<BaseReactor>& reactor) {
-    m_connections.AddConnection(reactor->ConnectUpdateSignal(
-      std::bind(&ReactorMonitor::OnUpdate, this,
-      std::weak_ptr<BaseReactor>(reactor))));
-    reactor->Commit();
-    if(reactor->IsComplete()) {
-      m_tasks.Push(
-        [=] {
-          auto signalIterator = m_completeSignals.find(reactor.get());
-          if(signalIterator != m_completeSignals.end()) {
-            signalIterator->second();
-          }
-        });
+  inline void ReactorMonitor::OnAdd(std::shared_ptr<BaseReactor> reactor) {
+    auto reactorIterator = std::find(m_reactors.begin(), m_reactors.end(),
+      reactor);
+    if(reactorIterator != m_reactors.end()) {
+      boost::lock_guard<boost::mutex> lock{m_mutex};
+      --m_activeCount;
+      if(m_activeCount == 0) {
+        m_waitCondition.notify_all();
+      }
     }
+    if(m_openState.IsOpen()) {
+      Trigger::SetEnvironmentTrigger(m_trigger);
+      if(IsComplete(reactor->Commit(0))) {
+        return;
+      }
+    }
+    m_reactors.push_back(reactor);
   }
 
-  inline void ReactorMonitor::OnUpdate(
-      const std::weak_ptr<BaseReactor>& weakReactor) {
-    auto reactor = weakReactor.lock();
-    if(reactor == nullptr) {
-      return;
-    }
-    m_updatedReactors.push_back(reactor.get());
-  }
-
-  inline void ReactorMonitor::OnEvent(const std::weak_ptr<Event>& weakEvent) {
-    m_tasks.Push(
-      [=] {
-        auto event = weakEvent.lock();
-        if(event == nullptr) {
-          return;
-        }
-        boost::lock_guard<Threading::RecursiveMutex> lock(m_mutex);
-        event->Execute();
-        for(auto& reactor : m_updatedReactors) {
-          reactor->Commit();
-          if(reactor->IsComplete()) {
-            m_completedReactors.push_back(reactor);
-          }
-        }
-        for(auto& reactor : m_completedReactors) {
-          auto signalIterator = m_completeSignals.find(reactor);
-          if(signalIterator != m_completeSignals.end()) {
-            signalIterator->second();
-          }
-        }
-        m_completedReactors.clear();
-        m_updatedReactors.clear();
+  inline void ReactorMonitor::OnSequenceNumber(int sequenceNumber) {
+    Trigger::SetEnvironmentTrigger(m_trigger);
+    auto deleteIterator = std::remove_if(m_reactors.begin(), m_reactors.end(),
+      [&] (auto& reactor) {
+        return IsComplete(reactor->Commit(sequenceNumber));
       });
+    auto removeCount = (m_reactors.end() - deleteIterator);
+    if(removeCount != 0) {
+      m_reactors.erase(deleteIterator, m_reactors.end());
+      boost::lock_guard<boost::mutex> lock{m_mutex};
+      m_activeCount -= static_cast<int>(removeCount);
+      if(m_activeCount == 0) {
+        m_waitCondition.notify_all();
+      }
+    }
   }
 }
 }

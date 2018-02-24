@@ -6,16 +6,19 @@
 #include "Beam/Python/BoostPython.hpp"
 #include "Beam/Python/Enum.hpp"
 #include "Beam/Python/EnumSet.hpp"
-#include "Beam/Python/GilRelease.hpp"
+#include "Beam/Python/Exception.hpp"
 #include "Beam/Python/Optional.hpp"
 #include "Beam/Python/PythonBindings.hpp"
+#include "Beam/Python/ToPythonUidClient.hpp"
+#include "Beam/Python/UniquePtr.hpp"
 #include "Beam/Serialization/BinaryReceiver.hpp"
 #include "Beam/Serialization/BinarySender.hpp"
 #include "Beam/Services/ServiceProtocolClientBuilder.hpp"
 #include "Beam/Threading/LiveTimer.hpp"
 #include "Beam/UidService/UidClient.hpp"
+#include "Beam/UidService/UidServiceException.hpp"
 #include "Beam/UidService/VirtualUidClient.hpp"
-#include "Beam/UidServiceTests/UidServiceTestInstance.hpp"
+#include "Beam/UidServiceTests/UidServiceTestEnvironment.hpp"
 #include <boost/noncopyable.hpp>
 
 using namespace Beam;
@@ -38,12 +41,26 @@ namespace {
     BinarySender<SharedBuffer>>, LiveTimer>;
   using Client = UidClient<UidClientSessionBuilder>;
 
-  VirtualUidClient* BuildUidClient(const IpAddress& address) {
+  struct FromPythonUidClient : VirtualUidClient, wrapper<VirtualUidClient> {
+    virtual std::uint64_t LoadNextUid() override final {
+      return get_override("load_next_uid")();
+    }
+
+    virtual void Open() override final {
+      get_override("open")();
+    }
+
+    virtual void Close() override final {
+      get_override("close")();
+    }
+  };
+
+  auto BuildUidClient(const IpAddress& address) {
     auto isConnected = false;
-    UidClientSessionBuilder sessionBuilder(
+    UidClientSessionBuilder sessionBuilder{
       [=] () mutable {
         if(isConnected) {
-          throw NotConnectedException();
+          throw NotConnectedException{};
         }
         isConnected = true;
         return std::make_unique<TcpSocketChannel>(address,
@@ -52,12 +69,23 @@ namespace {
       [=] {
         return std::make_unique<LiveTimer>(seconds(10),
           Ref(*GetTimerThreadPool()));
-      });
-    auto baseClient = std::make_unique<Client>(sessionBuilder);
-    auto client = new WrapperUidClient<std::unique_ptr<Client>>(
-      std::move(baseClient));
-    return client;
+      }};
+    return MakeToPythonUidClient(
+      std::make_unique<Client>(sessionBuilder)).release();
   }
+
+  std::unique_ptr<VirtualUidClient> UidServiceTestEnvironmentBuildClient(
+      UidServiceTestEnvironment& environment) {
+    return MakeToPythonUidClient(environment.BuildClient());
+  }
+}
+
+BEAM_DEFINE_PYTHON_POINTER_LINKER(VirtualUidClient);
+
+void Beam::Python::ExportApplicationUidClient() {
+  class_<ToPythonUidClient<Client>, bases<VirtualUidClient>,
+    boost::noncopyable>("ApplicationUidClient", no_init)
+    .def("__init__", make_constructor(&BuildUidClient));
 }
 
 void Beam::Python::ExportUidService() {
@@ -68,29 +96,32 @@ void Beam::Python::ExportUidService() {
   scope().attr("uid_service") = nestedModule;
   scope parent = nestedModule;
   ExportUidClient();
+  ExportApplicationUidClient();
+  ExportException<UidServiceException, std::runtime_error>(
+    "UidServiceException")
+    .def(init<const string&>());
   {
     string nestedName = extract<string>(parent.attr("__name__") + ".tests");
     object nestedModule{handle<>(
       borrowed(PyImport_AddModule(nestedName.c_str())))};
     parent.attr("tests") = nestedModule;
     scope child = nestedModule;
-    ExportUidServiceTestInstance();
+    ExportUidServiceTestEnvironment();
   }
 }
 
 void Beam::Python::ExportUidClient() {
-  class_<VirtualUidClient, boost::noncopyable>("UidClient", no_init)
-    .def("__init__", make_constructor(&BuildUidClient))
-    .def("load_next_uid", BlockingFunction(&VirtualUidClient::LoadNextUid))
-    .def("open", BlockingFunction(&VirtualUidClient::Open))
-    .def("close", BlockingFunction(&VirtualUidClient::Close));
+  class_<FromPythonUidClient, boost::noncopyable>("UidClient", no_init)
+    .def("load_next_uid", &VirtualUidClient::LoadNextUid)
+    .def("open", &VirtualUidClient::Open)
+    .def("close", &VirtualUidClient::Close);
+  ExportUniquePtr<VirtualUidClient>();
 }
 
-void Beam::Python::ExportUidServiceTestInstance() {
-  class_<UidServiceTestInstance, boost::noncopyable>("UidServiceTestInstance",
-      init<>())
-    .def("open", BlockingFunction(&UidServiceTestInstance::Open))
-    .def("close", BlockingFunction(&UidServiceTestInstance::Close))
-    .def("build_client",
-      ReleaseUniquePtr(&UidServiceTestInstance::BuildClient));
+void Beam::Python::ExportUidServiceTestEnvironment() {
+  class_<UidServiceTestEnvironment, boost::noncopyable>(
+    "UidServiceTestEnvironment", init<>())
+    .def("open", BlockingFunction(&UidServiceTestEnvironment::Open))
+    .def("close", BlockingFunction(&UidServiceTestEnvironment::Close))
+    .def("build_client", &UidServiceTestEnvironmentBuildClient);
 }

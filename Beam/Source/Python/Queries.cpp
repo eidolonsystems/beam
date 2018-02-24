@@ -1,8 +1,9 @@
 #include "Beam/Python/Queries.hpp"
 #include <sstream>
-#include <boost/python/suite/indexing/indexing_suite.hpp>
 #include "Beam/Python/BoostPython.hpp"
+#include "Beam/Python/Exception.hpp"
 #include "Beam/Python/Variant.hpp"
+#include "Beam/Python/Vector.hpp"
 #include "Beam/Queries/ConstantExpression.hpp"
 #include "Beam/Queries/DataType.hpp"
 #include "Beam/Queries/Expression.hpp"
@@ -10,6 +11,8 @@
 #include "Beam/Queries/FunctionExpression.hpp"
 #include "Beam/Queries/InterruptableQuery.hpp"
 #include "Beam/Queries/InterruptionPolicy.hpp"
+#include "Beam/Queries/ExpressionTranslationException.hpp"
+#include "Beam/Queries/QueryInterruptedException.hpp"
 #include "Beam/Queries/Range.hpp"
 #include "Beam/Queries/RangedQuery.hpp"
 #include "Beam/Queries/Sequence.hpp"
@@ -17,6 +20,7 @@
 #include "Beam/Queries/SnapshotLimitedQuery.hpp"
 #include "Beam/Queries/StandardDataTypes.hpp"
 #include "Beam/Queries/StandardValues.hpp"
+#include "Beam/Queries/TypeCompatibilityException.hpp"
 
 using namespace Beam;
 using namespace Beam::Python;
@@ -69,8 +73,7 @@ void Beam::Python::ExportExpression() {
     .def("apply", &VirtualExpression::Apply);
   class_<Expression>("CloneableExpression", no_init)
     .def("__init__", &MakeCloneableExpression);
-  class_<vector<Expression>>("VectorExpression")
-    .def(vector_indexing_suite<vector<Expression>>());
+  ExportVector<vector<Expression>>("VectorExpression");
 }
 
 void Beam::Python::ExportConstantExpression() {
@@ -171,6 +174,21 @@ void Beam::Python::ExportQueries() {
   ExportSnapshotLimit();
   ExportSnapshotLimitedQuery();
   ExportValue();
+  ExportIndexedQuery<boost::python::object>("");
+  ExportBasicQuery<boost::python::object>("");
+  ExportException<ExpressionTranslationException, std::runtime_error>(
+    "ExpressionTranslationException")
+    .def(init<const string&>());
+  ExportException<QueryInterruptedException, std::runtime_error>(
+    "QueryInterruptedException")
+    .def(init<>())
+    .def(init<const string&>());
+  ExportException<TypeCompatibilityException, std::runtime_error>(
+    "TypeCompatibilityException")
+    .def(init<>())
+    .def(init<const string&>());
+  def("build_current_query", &BuildCurrentQuery<boost::python::object>);
+  def("build_real_time_query", &BuildRealTimeQuery<boost::python::object>);
 }
 
 void Beam::Python::ExportRange() {

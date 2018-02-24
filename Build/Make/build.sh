@@ -16,6 +16,8 @@ build_function() {
 }
 
 let cores="`grep -c "processor" < /proc/cpuinfo` / 2 + 1"
+let mem="`grep -oP "MemTotal: +\K([[:digit:]]+)(?=.*)" < /proc/meminfo` / 4194304"
+let jobs="$(($cores<$mem?$cores:$mem))"
 
 pushd $directory/../../Beam/Build/Make
 ./build.sh $config
@@ -33,4 +35,10 @@ applications+=" ServiceLocator"
 applications+=" ServiceProtocolProfiler"
 applications+=" ServletTemplate"
 applications+=" UidServer"
-parallel -j$cores --no-notice build_function ::: $applications
+applications+=" WebSocketEchoServer"
+parallel -j$jobs --no-notice build_function ::: $applications
+
+pushd $directory/../../Documents/sphinx
+make clean
+make html
+popd

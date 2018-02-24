@@ -27,6 +27,13 @@ namespace Beam {
 
       //! Removes the top value in the Queue.
       virtual void Pop() = 0;
+
+      //! Blocks until a value is available to be popped.
+      void Wait() const;
+
+    protected:
+      template<typename U>
+      static bool IsAvailable(const QueueReader<U>& queue);
   };
 
   //! Flushes the contents of a QueueReader into an iterator.
@@ -44,6 +51,32 @@ namespace Beam {
         ++destination;
       }
     } catch(const std::exception&) {}
+  }
+
+  template<typename Queue, typename F1, typename F2>
+  void Monitor(const Queue& queue, const F1& valueCallback,
+      const F2& breakCallback) {
+    try {
+      while(true) {
+        valueCallback(queue->Top());
+        queue->Pop();
+      }
+    } catch(const std::exception&) {
+      breakCallback(std::current_exception());
+    }
+  }
+
+  template<typename T>
+  void QueueReader<T>::Wait() const {
+    boost::unique_lock<boost::mutex> lock{GetMutex()};
+    Threading::Waitable::Wait(lock);
+  }
+
+  template<typename T>
+  template<typename U>
+  bool QueueReader<T>::IsAvailable(const QueueReader<U>& queue) {
+    return Threading::Waitable::IsAvailable(
+      static_cast<const Threading::Waitable&>(queue));
   }
 }
 

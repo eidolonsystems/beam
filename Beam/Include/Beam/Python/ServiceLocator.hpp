@@ -5,6 +5,9 @@
 namespace Beam {
 namespace Python {
 
+  //! Exports the ApplicationServiceLocatorClient class.
+  void ExportApplicationServiceLocatorClient();
+
   //! Exports the DirectoryEntry struct.
   void ExportDirectoryEntry();
 
@@ -20,8 +23,8 @@ namespace Python {
   //! Exports the ServiceLocatorClient class.
   void ExportServiceLocatorClient();
 
-  //! Exports the ServiceLocatorTestInstance class.
-  void ExportServiceLocatorTestInstance();
+  //! Exports the ServiceLocatorTestEnvironment class.
+  void ExportServiceLocatorTestEnvironment();
 }
 }
 

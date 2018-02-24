@@ -1,5 +1,5 @@
-#ifndef BEAM_LUAREACTOR_HPP
-#define BEAM_LUAREACTOR_HPP
+#ifndef BEAM_LUA_REACTOR_HPP
+#define BEAM_LUA_REACTOR_HPP
 extern "C" {
   #include <lua.h>
   #include <lualib.h>
@@ -35,6 +35,7 @@ namespace Reactors {
 
   template<typename T>
   struct LuaReactorCore {
+    using Type = T;
     std::string m_functionName;
     std::vector<std::unique_ptr<LuaReactorParameter>> m_parameters;
     lua_State* m_luaState;
@@ -42,36 +43,36 @@ namespace Reactors {
     LuaReactorCore(std::string functionName,
         std::vector<std::unique_ptr<LuaReactorParameter>> parameters,
         lua_State& luaState)
-        : m_functionName(std::move(functionName)),
-          m_parameters(std::move(parameters)),
-          m_luaState(&luaState) {}
+        : m_functionName{std::move(functionName)},
+          m_parameters{std::move(parameters)},
+          m_luaState{&luaState} {}
 
     ~LuaReactorCore() {
       lua_close(m_luaState);
     }
 
-    boost::optional<T> operator ()(
-        const std::vector<const BaseReactor*>& reactors) {
+    boost::optional<Type> operator ()(
+        const std::vector<std::shared_ptr<BaseReactor>>& children) {
       lua_getglobal(m_luaState, m_functionName.c_str());
       auto parameterCount = 0;
-      for(const auto& parameter : m_parameters) {
+      for(auto& parameter : m_parameters) {
         try {
           parameter->Push(*m_luaState);
         } catch(const std::exception& e) {
           lua_pop(m_luaState, parameterCount + 1);
-          BOOST_THROW_EXCEPTION(ReactorError(e.what()));
+          BOOST_THROW_EXCEPTION(ReactorError{e.what()});
         }
         ++parameterCount;
       }
-      if(lua_pcall(m_luaState, reactors.size(), 1, 0) != 0) {
-        BOOST_THROW_EXCEPTION(ReactorError(lua_tostring(m_luaState, -1)));
+      if(lua_pcall(m_luaState, children.size(), 1, 0) != 0) {
+        BOOST_THROW_EXCEPTION(ReactorError{lua_tostring(m_luaState, -1)});
       } else {
         if(!lua_isnil(m_luaState, -1)) {
           try {
-            return PopLuaValue<T>()(*m_luaState);
+            return PopLuaValue<Type>{}(*m_luaState);
           } catch(const std::exception& e) {
             lua_pop(m_luaState, 1);
-            BOOST_THROW_EXCEPTION(ReactorError(e.what()));
+            BOOST_THROW_EXCEPTION(ReactorError{e.what()});
           }
         }
       }
@@ -86,14 +87,14 @@ namespace Reactors {
     \param luaState The Lua interpreter state used to invoke the function.
   */
   template<typename T>
-  std::shared_ptr<Reactor<T>> MakeLuaReactor(std::string functionName,
+  auto MakeLuaReactor(std::string functionName,
       std::vector<std::unique_ptr<LuaReactorParameter>> parameters,
       lua_State& luaState) {
-    std::vector<BaseReactor*> reactors(parameters.size());
+    std::vector<std::shared_ptr<BaseReactor>> reactors(parameters.size());
     std::transform(parameters.begin(), parameters.end(),
       std::back_inserter(reactors),
-      [] (const std::unique_ptr<LuaReactorParameter>& parameter) {
-        return &parameter->GetReactor();
+      [] (auto& parameter) {
+        return parameter->GetReactor();
       });
     auto core = MakeFunctionObject(std::make_unique<LuaReactorCore<T>>(
       std::move(functionName), std::move(parameters), luaState));
@@ -116,7 +117,7 @@ namespace Reactors {
     boost::posix_time::ptime operator ()(lua_State& state) const {
 
       // TODO
-      return boost::posix_time::ptime();
+      return boost::posix_time::ptime{};
     }
   };
 
@@ -125,7 +126,7 @@ namespace Reactors {
     boost::posix_time::time_duration operator ()(lua_State& state) const {
 
       // TODO
-      return boost::posix_time::time_duration();
+      return boost::posix_time::time_duration{};
     }
   };
 

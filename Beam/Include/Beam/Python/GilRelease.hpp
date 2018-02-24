@@ -1,9 +1,11 @@
 #ifndef BEAM_GILRELEASE_HPP
 #define BEAM_GILRELEASE_HPP
 #include <boost/noncopyable.hpp>
+#include <boost/python/object.hpp>
 #include <ceval.h>
 #include <pystate.h>
 #include <pythread.h>
+#include "Beam/Python/GilLock.hpp"
 #include "Beam/Python/Python.hpp"
 
 namespace Beam {
@@ -25,7 +27,7 @@ namespace Python {
       void unlock();
 
     private:
-      bool m_hasThread;
+      bool m_hasGil;
       PyThreadState* m_state;
   };
 
@@ -33,6 +35,37 @@ namespace Python {
   //! Python GIL.
   /*!
     \param f The function to wrap.
+    \param callPolicies The function's call policies.
+    \return A Python callable that invokes <i>f</i>.
+  */
+  template<typename R, typename... Args, typename CallPolicies>
+  boost::python::object BlockingFunction(R (*f)(Args...),
+      CallPolicies callPolicies) {
+    std::function<R (Args...)> callable = [=] (Args... args) -> R {
+        GilRelease gil;
+        boost::lock_guard<GilRelease> lock(gil);
+        return (*f)(std::forward<Args>(args)...);
+      };
+    using signature = boost::mpl::vector<R, Args...>;
+    return boost::python::make_function(callable, callPolicies, signature());
+  }
+
+  //! Wraps a blocking function into a Python callable that releases the
+  //! Python GIL.
+  /*!
+    \param f The function to wrap.
+    \return A Python callable that invokes <i>f</i>.
+  */
+  template<typename R, typename... Args>
+  boost::python::object BlockingFunction(R (*f)(Args...)) {
+    return BlockingFunction(f, boost::python::default_call_policies());
+  }
+
+  //! Wraps a blocking function into a Python callable that releases the
+  //! Python GIL.
+  /*!
+    \param f The function to wrap.
+    \param callPolicies The function's call policies.
     \return A Python callable that invokes <i>f</i>.
   */
   template<typename R, typename T, typename... Args, typename CallPolicies>
@@ -63,6 +96,7 @@ namespace Python {
   //! Python GIL.
   /*!
     \param f The function to wrap.
+    \param callPolicies The function's call policies.
     \return A Python callable that invokes <i>f</i>.
   */
   template<typename Q, typename R, typename T, typename... Args,
@@ -94,6 +128,7 @@ namespace Python {
   //! Python GIL.
   /*!
     \param f The function to wrap.
+    \param callPolicies The function's call policies.
     \return A Python callable that invokes <i>f</i>.
   */
   template<typename R, typename T, typename... Args, typename CallPolicies>
@@ -121,16 +156,14 @@ namespace Python {
   }
 
   inline void GilRelease::lock() {
-    auto threadState = _PyThreadState_Current;
-    m_hasThread = threadState != nullptr &&
-      (threadState == PyGILState_GetThisThreadState());
-    if(m_hasThread) {
+    m_hasGil = HasGil();
+    if(m_hasGil) {
       m_state = PyEval_SaveThread();
     }
   }
 
   inline void GilRelease::unlock() {
-    if(m_hasThread) {
+    if(m_hasGil) {
       PyEval_RestoreThread(m_state);
     }
   }

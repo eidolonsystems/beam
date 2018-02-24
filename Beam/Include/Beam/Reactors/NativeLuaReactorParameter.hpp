@@ -1,9 +1,10 @@
-#ifndef BEAM_NATIVELUAREACTORPARAMETER_HPP
-#define BEAM_NATIVELUAREACTORPARAMETER_HPP
+#ifndef BEAM_NATIVE_LUA_REACTOR_PARAMETER_HPP
+#define BEAM_NATIVE_LUA_REACTOR_PARAMETER_HPP
 #include <cstdint>
 #include <string>
 #include <boost/date_time/posix_time/posix_time_types.hpp>
 #include "Beam/Collections/Enum.hpp"
+#include "Beam/Reactors/ConstantReactor.hpp"
 #include "Beam/Reactors/LuaReactorParameter.hpp"
 #include "Beam/Reactors/Reactors.hpp"
 
@@ -34,30 +35,33 @@ namespace Reactors {
       /*!
         \param reactor The Reactor representing the parameter.
       */
-      NativeLuaReactorParameter(std::shared_ptr<Reactor<T>> reactor);
+      NativeLuaReactorParameter(std::shared_ptr<Reactor<Type>> reactor);
 
-      virtual void Push(lua_State& luaState) const;
+      virtual void Push(lua_State& luaState) const override final;
   };
 
   //! Makes a NativeLuaReactorParameter.
   /*!
-    \param reactor The Reactor representing the parameter.
+    \param parameter The Reactor representing the parameter.
   */
-  template<typename T>
-  std::unique_ptr<NativeLuaReactorParameter<T>> MakeNativeLuaReactorParameter(
-      std::shared_ptr<Reactor<T>> reactor) {
-    return std::make_unique<NativeLuaReactorParameter<T>>(std::move(reactor));
+  template<typename Parameter>
+  auto MakeNativeLuaReactorParameter(Parameter&& parameter) {
+    auto parameterReactor = Lift(std::forward<Parameter>(parameter));
+    using ParameterReactor = decltype(parameterReactor);
+    return std::make_unique<
+      NativeLuaReactorParameter<GetReactorType<ParameterReactor>>>(
+      std::forward<decltype(parameterReactor)>(parameter));
   }
 
   template<typename T>
   NativeLuaReactorParameter<T>::NativeLuaReactorParameter(
       std::shared_ptr<Reactor<T>> reactor)
-      : LuaReactorParameter(std::move(reactor)) {}
+      : LuaReactorParameter{std::move(reactor)} {}
 
   template<typename T>
   void NativeLuaReactorParameter<T>::Push(lua_State& luaState) const {
     PushLuaValue<Type>()(luaState,
-      static_cast<const Reactor<T>&>(this->GetReactor()).Eval());
+      static_cast<const Reactor<T>&>(*(this->GetReactor())).Eval());
   }
 
   template<>

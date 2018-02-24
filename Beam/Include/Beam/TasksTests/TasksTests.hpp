@@ -4,12 +4,13 @@
 namespace Beam {
 namespace Tasks {
 namespace Tests {
-  class ExpressionTaskTester;
+  class FunctionTaskTester;
   class IdleTaskTester;
   class MockTask;
   class MockTaskFactory;
-  class ReactorTaskTester;
+  class PackagedTaskTester;
   class SpawnTaskTester;
+  class UntilTaskTester;
   class WhenTaskTester;
 }
 }

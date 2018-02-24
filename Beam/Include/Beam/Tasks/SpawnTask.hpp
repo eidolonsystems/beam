@@ -1,10 +1,11 @@
-#ifndef BEAM_SPAWNTASK_HPP
-#define BEAM_SPAWNTASK_HPP
+#ifndef BEAM_SPAWN_TASK_HPP
+#define BEAM_SPAWN_TASK_HPP
 #include "Beam/Pointers/Ref.hpp"
 #include "Beam/Reactors/BaseReactor.hpp"
-#include "Beam/Reactors/Control.hpp"
+#include "Beam/Reactors/DoReactor.hpp"
+#include "Beam/Reactors/PublisherReactor.hpp"
 #include "Beam/Reactors/ReactorMonitor.hpp"
-#include "Beam/Reactors/Trigger.hpp"
+#include "Beam/Reactors/WhenComplete.hpp"
 #include "Beam/SignalHandling/ScopedSlotAdaptor.hpp"
 #include "Beam/Tasks/BasicTask.hpp"
 #include "Beam/Tasks/Tasks.hpp"
@@ -20,29 +21,27 @@ namespace Tasks {
 
       //! Constructs a SpawnTask.
       /*!
-        \param taskFactory The Task to execute on a trigger.
-        \param trigger The Expression that triggers execution of a Task.
         \param reactorMonitor The ReactorMonitor to use.
+        \param trigger The Expression that triggers execution of a Task.
+        \param taskFactory The Task to execute on a trigger.
       */
-      SpawnTask(const TaskFactory& taskFactory,
-        const std::shared_ptr<Reactors::BaseReactor>& trigger,
-        RefType<Reactors::ReactorMonitor> reactorMonitor);
+      SpawnTask(RefType<Reactors::ReactorMonitor> reactorMonitor,
+        std::shared_ptr<Reactors::BaseReactor> trigger,
+        TaskFactory taskFactory);
 
     protected:
-      virtual void OnExecute();
+      virtual void OnExecute() override final;
 
-      virtual void OnCancel();
+      virtual void OnCancel() override final;
 
     private:
-      TaskFactory m_taskFactory;
-      std::shared_ptr<Reactors::BaseReactor> m_trigger;
       Reactors::ReactorMonitor* m_reactorMonitor;
-      Reactors::Trigger m_syncTrigger;
+      std::shared_ptr<Reactors::BaseReactor> m_trigger;
+      TaskFactory m_taskFactory;
       bool m_triggerIsComplete;
       int m_taskCount;
       int m_state;
       SignalHandling::ScopedSlotAdaptor m_callbacks;
-      boost::signals2::scoped_connection m_completeConnection;
 
       void OnTaskUpdate(const StateEntry& entry);
       void OnTrigger(const Expect<void>& value);
@@ -63,39 +62,37 @@ namespace Tasks {
 
       //! Constructs a SpawnTaskFactory.
       /*!
-        \param taskFactory The Task to execute on a trigger.
-        \param trigger The Expression that triggers execution of a Task.
         \param reactorMonitor The ReactorMonitor to use.
+        \param trigger The Expression that triggers execution of a Task.
+        \param taskFactory The Task to execute on a trigger.
       */
-      SpawnTaskFactory(const TaskFactory& taskFactory,
-        const std::shared_ptr<Reactors::BaseReactor>& trigger,
-        RefType<Reactors::ReactorMonitor> reactorMonitor);
+      SpawnTaskFactory(RefType<Reactors::ReactorMonitor> reactorMonitor,
+        std::shared_ptr<Reactors::BaseReactor> trigger,
+        TaskFactory taskFactory);
 
-      virtual std::shared_ptr<Task> Create();
+      virtual std::shared_ptr<Task> Create() override final;
 
     private:
-      TaskFactory m_taskFactory;
-      std::shared_ptr<Reactors::BaseReactor> m_trigger;
       Reactors::ReactorMonitor* m_reactorMonitor;
+      std::shared_ptr<Reactors::BaseReactor> m_trigger;
+      TaskFactory m_taskFactory;
   };
 
-  inline SpawnTask::SpawnTask(const TaskFactory& taskFactory,
-        const std::shared_ptr<Reactors::BaseReactor>& trigger,
-        RefType<Reactors::ReactorMonitor> reactorMonitor)
-      : m_taskFactory(taskFactory),
-        m_trigger(trigger),
-        m_reactorMonitor(reactorMonitor.Get()),
-        m_syncTrigger(*m_reactorMonitor) {}
+  inline SpawnTask::SpawnTask(RefType<Reactors::ReactorMonitor> reactorMonitor,
+      std::shared_ptr<Reactors::BaseReactor> trigger, TaskFactory taskFactory)
+      : m_reactorMonitor{reactorMonitor.Get()},
+        m_trigger{std::move(trigger)},
+        m_taskFactory{std::move(taskFactory)} {}
 
   inline void SpawnTask::OnExecute() {
     return S0();
   }
 
   inline void SpawnTask::OnCancel() {
-    m_syncTrigger.Do(
+    m_reactorMonitor->Do(
       [=] {
         if(m_state == 1) {
-          return S2(StateEntry(State::CANCELED));
+          return S2(State::CANCELED);
         }
       });
   }
@@ -117,7 +114,7 @@ namespace Tasks {
     try {
       value.Get();
     } catch(const std::exception& e) {
-      return S3(StateEntry(State::FAILED, e.what()));
+      return S3(StateEntry{State::FAILED, e.what()});
     }
     return S4();
   }
@@ -135,12 +132,12 @@ namespace Tasks {
     m_taskCount = 0;
     SetActive();
     S1();
-    auto trigger = Reactors::Do(m_callbacks.GetCallback(
+    auto trigger = Reactors::WhenComplete(
+      m_callbacks.GetCallback(std::bind(&SpawnTask::OnTriggerComplete, this)),
+      Reactors::Do(m_callbacks.GetCallback(
       std::bind(&SpawnTask::OnTrigger, this, std::placeholders::_1)),
-      m_trigger);
-    m_completeConnection = m_reactorMonitor->ConnectCompleteSignal(*trigger,
-      std::bind(&SpawnTask::OnTriggerComplete, this));
-    m_reactorMonitor->AddReactor(trigger);
+      m_trigger));
+    m_reactorMonitor->Add(trigger);
   }
 
   inline void SpawnTask::S1() {
@@ -162,12 +159,11 @@ namespace Tasks {
     auto task = m_taskFactory->Create();
     Manage(task);
     ++m_taskCount;
-    auto publisher = Reactors::MakePublisherReactor(&task->GetPublisher());
+    auto publisher = Reactors::MakePublisherReactor(task->GetPublisher());
     auto taskReactor = Reactors::Do(m_callbacks.GetCallback(
       std::bind(&SpawnTask::OnTaskUpdate, this, std::placeholders::_1)),
       publisher);
-    m_reactorMonitor->AddEvent(publisher);
-    m_reactorMonitor->AddReactor(taskReactor);
+    m_reactorMonitor->Add(taskReactor);
     task->Execute();
     return S1();
   }
@@ -177,7 +173,7 @@ namespace Tasks {
     if(m_taskCount == 0 && m_triggerIsComplete) {
 
       // C0
-      return S2(StateEntry(State::COMPLETE));
+      return S2(State::COMPLETE);
     } else {
 
       //! ~C0
@@ -185,16 +181,16 @@ namespace Tasks {
     }
   }
 
-  inline SpawnTaskFactory::SpawnTaskFactory(const TaskFactory& taskFactory,
-        const std::shared_ptr<Reactors::BaseReactor>& trigger,
-        RefType<Reactors::ReactorMonitor> reactorMonitor)
-      : m_taskFactory(taskFactory),
-        m_trigger(trigger),
-        m_reactorMonitor(reactorMonitor.Get()) {}
+  inline SpawnTaskFactory::SpawnTaskFactory(
+      RefType<Reactors::ReactorMonitor> reactorMonitor,
+      std::shared_ptr<Reactors::BaseReactor> trigger, TaskFactory taskFactory)
+      : m_reactorMonitor{reactorMonitor.Get()},
+        m_trigger{std::move(trigger)},
+        m_taskFactory{std::move(taskFactory)} {}
 
   inline std::shared_ptr<Task> SpawnTaskFactory::Create() {
-    return std::make_shared<SpawnTask>(m_taskFactory, m_trigger,
-      Ref(*m_reactorMonitor));
+    return std::make_shared<SpawnTask>(Ref(*m_reactorMonitor), m_trigger,
+      m_taskFactory);
   }
 }
 }

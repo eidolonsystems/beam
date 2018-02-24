@@ -1,5 +1,5 @@
-#ifndef BEAM_NONEREACTOR_HPP
-#define BEAM_NONEREACTOR_HPP
+#ifndef BEAM_NONE_REACTOR_HPP
+#define BEAM_NONE_REACTOR_HPP
 #include <memory>
 #include <boost/throw_exception.hpp>
 #include "Beam/Reactors/Reactor.hpp"
@@ -15,28 +15,39 @@ namespace Reactors {
   template<typename T>
   class NoneReactor : public Reactor<T> {
     public:
-      typedef GetReactorType<Reactor<T>> Type;
+      using Type = typename Reactor<T>::Type;
 
       //! Constructs a NoneReactor.
-      NoneReactor();
+      NoneReactor() = default;
 
-      virtual Type Eval() const;
+      virtual BaseReactor::Update Commit(int sequenceNumber) override final;
+
+      virtual Type Eval() const override final;
   };
 
   //! Makes a NoneReactor.
   template<typename T>
-  std::shared_ptr<NoneReactor<T>> MakeNoneReactor() {
+  auto MakeNoneReactor() {
     return std::make_shared<NoneReactor<T>>();
   };
 
+  //! Makes a NoneReactor.
   template<typename T>
-  NoneReactor<T>::NoneReactor() {
-    this->SetComplete();
+  auto None() {
+    return MakeNoneReactor<int>();
+  }
+
+  template<typename T>
+  BaseReactor::Update NoneReactor<T>::Commit(int sequenceNumber) {
+    if(sequenceNumber == 0) {
+      return BaseReactor::Update::COMPLETE;
+    }
+    return BaseReactor::Update::NONE;
   }
 
   template<typename T>
   typename NoneReactor<T>::Type NoneReactor<T>::Eval() const {
-    BOOST_THROW_EXCEPTION(ReactorUnavailableException());
+    BOOST_THROW_EXCEPTION(ReactorUnavailableException{});
   }
 }
 }

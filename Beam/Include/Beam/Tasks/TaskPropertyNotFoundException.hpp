@@ -16,15 +16,21 @@ namespace Tasks {
     public:
 
       //! Constructs a TaskPropertyNotFoundException.
+      TaskPropertyNotFoundException();
+
+      //! Constructs a TaskPropertyNotFoundException.
       /*!
         \param message A message describing the error.
       */
       TaskPropertyNotFoundException(const std::string& message);
   };
 
+  inline TaskPropertyNotFoundException::TaskPropertyNotFoundException()
+      : std::runtime_error{"Task property not found."} {}
+
   inline TaskPropertyNotFoundException::TaskPropertyNotFoundException(
       const std::string& message)
-      : std::runtime_error(message) {}
+      : std::runtime_error{message} {}
 }
 }
 

@@ -1,12 +1,11 @@
-#ifndef BEAM_CHAINREACTOR_HPP
-#define BEAM_CHAINREACTOR_HPP
-#include <deque>
+#ifndef BEAM_CHAIN_REACTOR_HPP
+#define BEAM_CHAIN_REACTOR_HPP
 #include <type_traits>
-#include "Beam/Reactors/Event.hpp"
+#include "Beam/Pointers/LocalPtr.hpp"
+#include "Beam/Reactors/ConstantReactor.hpp"
 #include "Beam/Reactors/Reactor.hpp"
-#include "Beam/Reactors/ReactorContainer.hpp"
 #include "Beam/Reactors/Reactors.hpp"
-#include "Beam/Utilities/BeamWorkaround.hpp"
+#include "Beam/Reactors/Trigger.hpp"
 #include "Beam/Utilities/Expect.hpp"
 
 namespace Beam {
@@ -19,8 +18,7 @@ namespace Reactors {
       \tparam ContinuationReactorType The Reactor to evaluate to thereafter.
    */
   template<typename InitialReactorType, typename ContinuationReactorType>
-  class ChainReactor : public Reactor<GetReactorType<InitialReactorType>>,
-      public Event {
+  class ChainReactor : public Reactor<GetReactorType<InitialReactorType>> {
     public:
       using Type = GetReactorType<InitialReactorType>;
 
@@ -34,45 +32,51 @@ namespace Reactors {
       ChainReactor(InitialReactorForward&& initialReactor,
         ContinuationReactorForward&& continuationReactor);
 
-      virtual void Commit();
+      virtual BaseReactor::Update Commit(int sequenceNumber) override final;
 
-      virtual Type Eval() const;
-
-      virtual void Execute();
+      virtual Type Eval() const override final;
 
     private:
-      ReactorContainer<InitialReactorType> m_initialReactor;
-      ReactorContainer<ContinuationReactorType> m_continuationReactor;
-      std::deque<Expect<Type>> m_continuationValues;
-      Expect<Type> m_value;
-      int m_state;
-
-      void S0(bool initialUpdated, bool continuationUpdated);
-      void S1(bool initialUpdated);
-      void S2(bool continuationUpdated);
-      void S3(bool continuationUpdated);
-      void S4();
-      void S5(bool continuationUpdated);
-      void S6();
-      void S7(bool continuationUpdated);
-      void S8();
+      enum class ChainState {
+        INITIAL,
+        TRANSITION,
+        CONTINUATION,
+      };
+      GetOptionalLocalPtr<InitialReactorType> m_initialReactor;
+      GetOptionalLocalPtr<ContinuationReactorType> m_continuationReactor;
+      const Reactor<Type>* m_currentReactor;
+      int m_transitionSequence;
+      ChainState m_chainState;
+      int m_currentSequenceNumber;
+      BaseReactor::Update m_update;
+      BaseReactor::Update m_state;
   };
 
   //! Makes a ChainReactor.
   /*!
-    \param initialReactor The Reactor to initially evaluate to.
-    \param continuationReactor The Reactor to evaluate to thereafter.
+    \param initial The Reactor to initially evaluate to.
+    \param continuation The Reactor to evaluate to thereafter.
   */
-  template<typename InitialReactor, typename ContinuationReactor>
-  std::shared_ptr<ChainReactor<typename std::decay<InitialReactor>::type,
-      typename std::decay<ContinuationReactor>::type>>
-      MakeChainReactor(InitialReactor&& initialReactor,
-      ContinuationReactor&& continuationReactor) {
+  template<typename Initial, typename Continuation>
+  auto MakeChainReactor(Initial&& initial, Continuation&& continuation) {
+    auto initialReactor = Lift(std::forward<Initial>(initial));
+    auto continuationReactor = Lift(std::forward<Continuation>(continuation));
     return std::make_shared<ChainReactor<
-      typename std::decay<InitialReactor>::type,
-      typename std::decay<ContinuationReactor>::type>>(
-      std::forward<InitialReactor>(initialReactor),
-      std::forward<ContinuationReactor>(continuationReactor));
+      typename std::decay<decltype(initialReactor)>::type,
+      typename std::decay<decltype(continuationReactor)>::type>>(
+      std::forward<decltype(initialReactor)>(initialReactor),
+      std::forward<decltype(continuationReactor)>(continuationReactor));
+  }
+
+  //! Makes a ChainReactor.
+  /*!
+    \param initial The Reactor to initially evaluate to.
+    \param continuation The Reactor to evaluate to thereafter.
+  */
+  template<typename Initial, typename Continuation>
+  auto Chain(Initial&& initial, Continuation&& continuation) {
+    return MakeChainReactor(std::forward<Initial>(initial),
+      std::forward<Continuation>(continuation));
   }
 
   template<typename InitialReactorType, typename ContinuationReactorType>
@@ -80,145 +84,77 @@ namespace Reactors {
   ChainReactor<InitialReactorType, ContinuationReactorType>::ChainReactor(
       InitialReactorForward&& initialReactor,
       ContinuationReactorForward&& continuationReactor)
-BEAM_SUPPRESS_THIS_INITIALIZER()
-      : m_initialReactor(std::forward<InitialReactorForward>(initialReactor),
-          *this),
-        m_continuationReactor(std::forward<ContinuationReactorForward>(
-          continuationReactor), *this),
-        m_state(0) {}
-BEAM_UNSUPPRESS_THIS_INITIALIZER()
+      : m_initialReactor{std::forward<InitialReactorForward>(initialReactor)},
+        m_continuationReactor{
+          std::forward<ContinuationReactorForward>(continuationReactor)},
+        m_currentReactor{&*m_initialReactor},
+        m_transitionSequence{-1},
+        m_chainState{ChainState::INITIAL},
+        m_currentSequenceNumber{-1},
+        m_state{BaseReactor::Update::NONE} {}
 
   template<typename InitialReactorType, typename ContinuationReactorType>
-  void ChainReactor<InitialReactorType, ContinuationReactorType>::Commit() {
-    auto initialUpdated = m_initialReactor.Commit();
-    auto continuationUpdated = m_continuationReactor.Commit();
-    if(m_state == 0) {
-      return S0(initialUpdated, continuationUpdated);
-    } else if(m_state == 4) {
-      return S5(continuationUpdated);
-    } else if(m_state == 6) {
-      return S7(continuationUpdated);
+  BaseReactor::Update ChainReactor<InitialReactorType,
+      ContinuationReactorType>::Commit(int sequenceNumber) {
+    if(m_currentSequenceNumber == sequenceNumber) {
+      return m_update;
+    } else if(sequenceNumber == 0 && m_currentSequenceNumber != -1) {
+      return m_state;
+    } else if(IsComplete(m_state)) {
+      return BaseReactor::Update::NONE;
+    }
+    if(m_chainState == ChainState::INITIAL) {
+      auto update = m_initialReactor->Commit(sequenceNumber);
+      if(update == BaseReactor::Update::COMPLETE) {
+        m_chainState = ChainState::CONTINUATION;
+        m_currentSequenceNumber = sequenceNumber;
+        m_update = m_continuationReactor->Commit(0);
+        if(m_update != BaseReactor::Update::COMPLETE) {
+          m_currentReactor = &*m_continuationReactor;
+        }
+        Combine(m_state, m_update);
+        return m_update;
+      } else if(update == BaseReactor::Update::COMPLETE_WITH_EVAL) {
+        m_chainState = ChainState::TRANSITION;
+        Trigger::GetEnvironmentTrigger().SignalUpdate(
+          Store(m_transitionSequence));
+        m_currentSequenceNumber = sequenceNumber;
+        m_update = BaseReactor::Update::EVAL;
+        Combine(m_state, BaseReactor::Update::EVAL);
+        return BaseReactor::Update::EVAL;
+      }
+      m_currentSequenceNumber = sequenceNumber;
+      m_update = update;
+      Combine(m_state, update);
+      return update;
+    } else if(m_chainState == ChainState::TRANSITION) {
+      if(sequenceNumber == m_transitionSequence) {
+        m_chainState = ChainState::CONTINUATION;
+        m_currentSequenceNumber = sequenceNumber;
+        m_update = m_continuationReactor->Commit(0);
+        if(HasEval(m_update)) {
+          m_currentReactor = &*m_continuationReactor;
+        }
+        Combine(m_state, m_update);
+        return m_update;
+      } else {
+        return BaseReactor::Update::NONE;
+      }
+    } else {
+      m_currentSequenceNumber = sequenceNumber;
+      m_update = m_continuationReactor->Commit(sequenceNumber);
+      if(HasEval(m_update)) {
+        m_currentReactor = &*m_continuationReactor;
+      }
+      Combine(m_state, m_update);
+      return m_update;
     }
   }
 
   template<typename InitialReactorType, typename ContinuationReactorType>
   typename ChainReactor<InitialReactorType, ContinuationReactorType>::Type
       ChainReactor<InitialReactorType, ContinuationReactorType>::Eval() const {
-    return m_value.Get();
-  }
-
-  template<typename InitialReactorType, typename ContinuationReactorType>
-  void ChainReactor<InitialReactorType, ContinuationReactorType>::Execute() {
-    this->SignalUpdate();
-  }
-
-  template<typename InitialReactorType, typename ContinuationReactorType>
-  void ChainReactor<InitialReactorType, ContinuationReactorType>::S0(
-      bool initialUpdated, bool continuationUpdated) {
-    m_state = 0;
-    if(continuationUpdated) {
-
-      // C0
-      return S1(initialUpdated);
-    } else if(initialUpdated) {
-
-      // C1
-      return S2(continuationUpdated);
-    } else if(m_initialReactor.IsComplete()) {
-
-      // C2
-      return S3(continuationUpdated);
-    }
-  }
-
-  template<typename InitialReactorType, typename ContinuationReactorType>
-  void ChainReactor<InitialReactorType, ContinuationReactorType>::S1(
-      bool initialUpdated) {
-    m_state = 1;
-    m_continuationValues.push_back(m_continuationReactor.GetValue());
-    return S0(initialUpdated, false);
-  }
-
-  template<typename InitialReactorType, typename ContinuationReactorType>
-  void ChainReactor<InitialReactorType, ContinuationReactorType>::S2(
-      bool continuationUpdated) {
-    m_state = 2;
-    m_value = m_initialReactor.GetValue();
-    this->IncrementSequenceNumber();
-    return S0(false, continuationUpdated);
-  }
-
-  template<typename InitialReactorType, typename ContinuationReactorType>
-  void ChainReactor<InitialReactorType, ContinuationReactorType>::S3(
-      bool continuationUpdated) {
-    m_state = 3;
-    if(this->IsInitializing() && !m_continuationValues.empty()) {
-
-      // C3
-      return S5(continuationUpdated);
-    } else if(!m_continuationValues.empty()) {
-
-      // C4
-      return S4();
-    } else if(m_continuationValues.empty()) {
-
-      // ~C4
-      return S6();
-    }
-  }
-
-  template<typename InitialReactorType, typename ContinuationReactorType>
-  void ChainReactor<InitialReactorType, ContinuationReactorType>::S4() {
-    m_state = 4;
-    this->SignalEvent();
-  }
-
-  template<typename InitialReactorType, typename ContinuationReactorType>
-  void ChainReactor<InitialReactorType, ContinuationReactorType>::S5(
-      bool continuationUpdated) {
-    m_state = 5;
-    if(continuationUpdated) {
-      m_continuationValues.push_back(m_continuationReactor.GetValue());
-    }
-    m_value = std::move(m_continuationValues.front());
-    this->IncrementSequenceNumber();
-    m_continuationValues.pop_front();
-    return S3(false);
-  }
-
-  template<typename InitialReactorType, typename ContinuationReactorType>
-  void ChainReactor<InitialReactorType, ContinuationReactorType>::S6() {
-    m_state = 6;
-    if(m_continuationReactor.IsComplete()) {
-
-      // C5
-      return S8();
-    }
-  }
-
-  template<typename InitialReactorType, typename ContinuationReactorType>
-  void ChainReactor<InitialReactorType, ContinuationReactorType>::S7(
-      bool continuationUpdated) {
-    m_state = 7;
-    if(continuationUpdated) {
-      m_value = m_continuationReactor.GetValue();
-      this->IncrementSequenceNumber();
-    }
-    if(m_continuationReactor.IsComplete()) {
-
-      // C5
-      return S8();
-    } else {
-
-      // ~C5
-      return S6();
-    }
-  }
-
-  template<typename InitialReactorType, typename ContinuationReactorType>
-  void ChainReactor<InitialReactorType, ContinuationReactorType>::S8() {
-    m_state = 8;
-    this->SetComplete();
+    return m_currentReactor->Eval();
   }
 }
 }

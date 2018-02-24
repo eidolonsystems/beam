@@ -1,38 +1,40 @@
-#ifndef BEAM_NONREPEATINGREACTOR_HPP
-#define BEAM_NONREPEATINGREACTOR_HPP
-#include <utility>
-#include <boost/optional/optional.hpp>
-#include "Beam/Pointers/Dereference.hpp"
+#ifndef BEAM_NON_REPEATING_REACTOR_HPP
+#define BEAM_NON_REPEATING_REACTOR_HPP
+#include "Beam/Reactors/ConstantReactor.hpp"
 #include "Beam/Reactors/FunctionReactor.hpp"
 #include "Beam/Reactors/Reactors.hpp"
+#include "Beam/Reactors/Trigger.hpp"
 
 namespace Beam {
 namespace Reactors {
-  template<typename ResultType>
-  struct NonRepeatingReactorCore {
-    using Result = ResultType;
-    boost::optional<Result> m_previous;
+namespace Details {
+  template<typename T>
+  struct NonRepeatingCore {
+    using Type = T;
+    boost::optional<T> m_lastValue;
 
-    boost::optional<Result> operator ()(const Result& value) {
-      if(m_previous == value) {
-        return boost::none;
+    boost::optional<Type> operator ()(const Type& value) {
+      if(m_lastValue.is_initialized()) {
+        if(*m_lastValue == value) {
+          return boost::none;
+        }
       }
-      m_previous = value;
-      return m_previous;
+      m_lastValue = value;
+      return value;
     }
   };
+}
 
-  //! Builds a Reactor that does not produce the same value successively.
+  //! Makes a Reactor that never repeats the same value twice in a row.
   /*!
-    \param reactor The Reactor producing a value.
+    \param child The Reactor to wrap.
   */
-  template<typename SourceReactor>
-  std::shared_ptr<Reactor<GetReactorType<SourceReactor>>>
-      MakeNonRepeatingReactor(SourceReactor&& source) {
-    auto reactor = MakeFunctionReactor(
-      NonRepeatingReactorCore<GetReactorType<SourceReactor>>(),
-      std::forward<SourceReactor>(source));
-    return reactor;
+  template<typename Child>
+  auto MakeNonRepeatingReactor(Child&& child) {
+    auto childReactor = Lift(std::forward<Child>(child));
+    return MakeFunctionReactor(
+      Details::NonRepeatingCore<GetReactorType<decltype(childReactor)>>{},
+      std::forward<decltype(childReactor)>(childReactor));
   }
 }
 }

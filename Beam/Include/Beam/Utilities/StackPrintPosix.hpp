@@ -5,7 +5,7 @@
 
 namespace Beam {
   inline std::string CaptureStackPrint() {
-    return "";
+    return {};
   }
 }
 

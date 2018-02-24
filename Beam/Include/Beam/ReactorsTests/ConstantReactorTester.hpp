@@ -1,5 +1,5 @@
-#ifndef BEAM_CONSTANTREACTORTESTER_HPP
-#define BEAM_CONSTANTREACTORTESTER_HPP
+#ifndef BEAM_CONSTANT_REACTOR_TESTER_HPP
+#define BEAM_CONSTANT_REACTOR_TESTER_HPP
 #include <cppunit/extensions/HelperMacros.h>
 #include "Beam/ReactorsTests/ReactorTests.hpp"
 #include "Beam/Utilities/BeamWorkaround.hpp"
@@ -23,11 +23,15 @@ namespace Tests {
       //! Tests a string ConstantReactor.
       void TestString();
 
+      //! Tests lifting a literal value into a ConstantReactor.
+      void TestLift();
+
     private:
       CPPUNIT_TEST_SUITE(ConstantReactorTester);
         CPPUNIT_TEST(TestInt);
         CPPUNIT_TEST(TestDecimal);
         CPPUNIT_TEST(TestString);
+        CPPUNIT_TEST(TestLift);
       BEAM_CPPUNIT_TEST_SUITE_END();
   };
 }

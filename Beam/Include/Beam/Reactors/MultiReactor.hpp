@@ -1,181 +1,158 @@
-#ifndef BEAM_MULTIREACTOR_HPP
-#define BEAM_MULTIREACTOR_HPP
-#include <vector>
-#include "Beam/Pointers/UniquePtr.hpp"
-#include "Beam/Reactors/ReactorContainer.hpp"
+#ifndef BEAM_MULTI_REACTOR_HPP
+#define BEAM_MULTI_REACTOR_HPP
+#include <type_traits>
+#include <boost/optional/optional.hpp>
+#include "Beam/Pointers/LocalPtr.hpp"
+#include "Beam/Reactors/CommitReactor.hpp"
 #include "Beam/Reactors/Reactor.hpp"
+#include "Beam/Reactors/ReactorUnavailableException.hpp"
 #include "Beam/Reactors/Reactors.hpp"
-#include "Beam/Utilities/Expect.hpp"
+#include "Beam/Utilities/Algorithm.hpp"
 #include "Beam/Utilities/Functional.hpp"
 
 namespace Beam {
 namespace Reactors {
 namespace Details {
-  template<typename T, typename U>
-  bool IsMultiAssigned(Expect<T>& left, boost::optional<U>&& right) {
-    if(right.is_initialized()) {
-      left = std::move(*right);
-      return true;
-    }
-    return false;
-  }
-
-  template<typename T, typename U>
-  bool IsMultiAssigned(Expect<T>& left, U&& right) {
-    left = std::move(right);
-    return true;
-  }
-
   template<typename T>
   struct MultiReactorType {
-    typedef T type;
+    using type = T;
   };
 
   template<typename T>
   struct MultiReactorType<boost::optional<T>> {
-    typedef T type;
+    using type = T;
+  };
+
+  template<typename T>
+  struct MultiReactorEval {
+    template<typename V, typename F, typename P>
+    bool operator ()(V& value, F& function, const P& p) const {
+      auto update = boost::optional<T>{function(p)};
+      if(update.is_initialized()) {
+        value = std::move(*update);
+        return true;
+      }
+      return false;
+    }
+  };
+
+  template<>
+  struct MultiReactorEval<void> {
+    template<typename V, typename F, typename P>
+    bool operator ()(V& value, F& function, const P& p) const {
+      function(p);
+      return true;
+    }
   };
 }
 
   /*! \class MultiReactor
-      \brief Aggregates multiple generic Reactors together and applies a
-             function when any of them updates.
+      \brief A Reactor that calls a function when any of its children updates.
       \tparam FunctionType The type of function to apply.
-      \tparam ParameterType The type of Reactor used as a parameter.
    */
-  template<typename FunctionType, typename ParameterType>
+  template<typename FunctionType>
   class MultiReactor : public Reactor<typename Details::MultiReactorType<
       typename std::decay<GetResultOf<FunctionType,
-      const std::vector<const BaseReactor*>&>>::type>::type> {
+      const std::vector<std::shared_ptr<BaseReactor>>&>>::type>::type> {
     public:
-      typedef GetReactorType<Reactor<typename Details::MultiReactorType<
+      using Type = typename Reactor<typename Details::MultiReactorType<
         typename std::decay<GetResultOf<FunctionType,
-        const std::vector<const BaseReactor*>&>>::type>::type>> Type;
+        const std::vector<std::shared_ptr<BaseReactor>>&>>::type>::type>::Type;
 
       //! The type of function to apply.
-      typedef FunctionType Function;
+      using Function = FunctionType;
 
       //! Constructs a MultiReactor.
       /*!
         \param function The function to apply.
-        \param parameters The Reactor's parameters.
+        \param children The Reactors to monitor.
       */
       template<typename FunctionForward>
       MultiReactor(FunctionForward&& function,
-        std::vector<ParameterType> parameters);
+        std::vector<std::shared_ptr<BaseReactor>> children);
 
-      virtual void Commit();
+      virtual BaseReactor::Update Commit(int sequenceNumber) override final;
 
-      virtual Type Eval() const;
+      virtual Type Eval() const override final;
 
     private:
       Function m_function;
-      std::vector<std::unique_ptr<ReactorContainer<ParameterType>>>
-        m_parameters;
+      std::vector<std::shared_ptr<BaseReactor>> m_parameters;
+      boost::optional<CommitReactor> m_commitReactor;
       Expect<Type> m_value;
-      std::vector<const BaseReactor*> m_updates;
+      int m_currentSequenceNumber;
+      BaseReactor::Update m_update;
+      BaseReactor::Update m_state;
 
-      void UpdateValue(const std::vector<const BaseReactor*>& reactors);
+      bool UpdateEval();
   };
 
   //! Makes a MultiReactor.
   /*!
     \param function The function to apply.
-    \param parameters The parameters to apply the <i>function</i> to.
+    \param children The Reactors to monitor.
   */
-  template<typename Function, typename Parameter>
-  std::shared_ptr<MultiReactor<typename std::decay<Function>::type, Parameter>>
-      MakeMultiReactor(Function&& f, std::vector<Parameter> parameters) {
-    return std::make_shared<MultiReactor<typename std::decay<Function>::type,
-      Parameter>>(std::forward<Function>(f), std::move(parameters));
+  template<typename Function>
+  auto MakeMultiReactor(Function&& f,
+      std::vector<std::shared_ptr<BaseReactor>> children) {
+    return std::make_shared<MultiReactor<typename std::decay<Function>::type>>(
+      std::forward<Function>(f), std::move(children));
   }
 
-  template<typename FunctionType, typename ParameterType>
+  template<typename FunctionType>
   template<typename FunctionForward>
-  MultiReactor<FunctionType, ParameterType>::MultiReactor(
-      FunctionForward&& function, std::vector<ParameterType> parameters)
-      : m_function(std::forward<FunctionForward>(function)) {
-    if(parameters.empty()) {
-      UpdateValue(std::vector<const BaseReactor*>());
-      this->SetComplete();
-      return;
+  MultiReactor<FunctionType>::MultiReactor(FunctionForward&& function,
+      std::vector<std::shared_ptr<BaseReactor>> children)
+      : m_function{std::forward<FunctionForward>(function)},
+        m_parameters{std::move(children)},
+        m_value{std::make_exception_ptr(ReactorUnavailableException{})},
+        m_currentSequenceNumber{-1},
+        m_state{BaseReactor::Update::NONE} {
+    std::vector<BaseReactor*> dependencies;
+    for(auto& parameter : m_parameters) {
+      dependencies.push_back(parameter.get());
     }
-    for(auto& parameter : parameters) {
-      auto container = std::make_unique<ReactorContainer<ParameterType>>(
-        std::move(parameter), *this);
-      auto existingReactor = std::find_if(m_parameters.begin(),
-        m_parameters.end(),
-        [&] (const std::unique_ptr<ReactorContainer<ParameterType>>& reactor) {
-          return &reactor->GetReactor() == &container->GetReactor();
-        });
-      if(existingReactor == m_parameters.end()) {
-        m_parameters.push_back(std::move(container));
-      }
-    }
+    m_commitReactor.emplace(std::move(dependencies));
   }
 
-  template<typename FunctionType, typename ParameterType>
-  void MultiReactor<FunctionType, ParameterType>::Commit() {
-    if(this->IsComplete()) {
-      for(const auto& parameter : m_parameters) {
-        parameter->Commit();
-      }
-      return;
+  template<typename FunctionType>
+  BaseReactor::Update MultiReactor<FunctionType>::Commit(int sequenceNumber) {
+    if(m_currentSequenceNumber == sequenceNumber) {
+      return m_update;
+    } else if(sequenceNumber == 0 && m_currentSequenceNumber != -1) {
+      return m_state;
+    } else if(IsComplete(m_state)) {
+      return BaseReactor::Update::NONE;
     }
-    m_updates.clear();
-    for(const auto& parameter : m_parameters) {
-      if(parameter->Commit()) {
-        m_updates.push_back(&parameter->GetReactor());
-      }
-    }
-    if(!m_updates.empty()) {
-      auto isInitialized = this->IsInitialized();
-      if(!isInitialized) {
-        isInitialized = true;
-        for(const auto& parameter : m_parameters) {
-          isInitialized = isInitialized && parameter->IsInitialized();
-        }
-      }
-      if(isInitialized) {
-        if(this->IsInitializing()) {
-          std::vector<const BaseReactor*> parameters;
-          std::transform(m_parameters.begin(), m_parameters.end(),
-            std::back_inserter(parameters),
-            [] (const std::unique_ptr<ReactorContainer<ParameterType>>&
-                reactor) {
-              return &reactor->GetReactor();
-            });
-          UpdateValue(parameters);
+    m_update = m_commitReactor->Commit(sequenceNumber);
+    if(HasEval(m_update)) {
+      if(!UpdateEval()) {
+        if(IsComplete(m_update)) {
+          m_update = BaseReactor::Update::COMPLETE;
         } else {
-          UpdateValue(m_updates);
+          m_update = BaseReactor::Update::NONE;
         }
       }
     }
-    auto isComplete = true;
-    for(const auto& parameter : m_parameters) {
-      isComplete = isComplete && parameter->IsComplete();
-    }
-    if(isComplete) {
-      this->SetComplete();
-    }
+    m_currentSequenceNumber = sequenceNumber;
+    Combine(m_state, m_update);
+    return m_update;
   }
 
-  template<typename FunctionType, typename ParameterType>
-  typename MultiReactor<FunctionType, ParameterType>::Type
-      MultiReactor<FunctionType, ParameterType>::Eval() const {
+  template<typename FunctionType>
+  typename MultiReactor<FunctionType>::Type
+      MultiReactor<FunctionType>::Eval() const {
     return m_value.Get();
   }
 
-  template<typename FunctionType, typename ParameterType>
-  void MultiReactor<FunctionType, ParameterType>::UpdateValue(
-      const std::vector<const BaseReactor*>& reactors) {
+  template<typename FunctionType>
+  bool MultiReactor<FunctionType>::UpdateEval() {
     try {
-      if(Details::IsMultiAssigned(m_value, m_function(reactors))) {
-        this->IncrementSequenceNumber();
-      }
+      return Details::MultiReactorEval<Type>{}(m_value, m_function,
+        m_parameters);
     } catch(const std::exception&) {
       m_value = std::current_exception();
-      this->IncrementSequenceNumber();
+      return true;
     }
   }
 }

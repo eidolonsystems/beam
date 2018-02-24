@@ -44,8 +44,8 @@ namespace Beam {
     auto nullParser = Parsers::Symbol("null", JsonNull());
     auto keyParser = Parsers::string_p;
     auto valueParser = Parsers::Convert(Parsers::string_p | nullParser |
-      Parsers::bool_p | Parsers::int64_p | Parsers::double_p | objectParser |
-      arrayParser, BuildJsonValue);
+      Parsers::bool_p | Parsers::double_p | objectParser | arrayParser,
+      BuildJsonValue);
     auto keyValueParser = Parsers::tokenize >> keyParser >> ':' >> valueParser;
     objectParser = Parsers::tokenize >> '{' >>
       Parsers::ForList(JsonObject(), keyValueParser, ',',
@@ -53,8 +53,8 @@ namespace Beam {
             const std::tuple<std::string, JsonValue>& value) {
           object.Set(std::get<0>(value), std::get<1>(value));
         }) >> '}';
-    arrayParser = Parsers::tokenize >> '[' >> Parsers::List(valueParser, ',') >>
-      ']';
+    arrayParser = Parsers::tokenize >> '[' >>
+      Parsers::List(valueParser, ',') >> ']';
     SetParser(valueParser);
   }
 

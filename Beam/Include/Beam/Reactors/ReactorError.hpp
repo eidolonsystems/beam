@@ -1,5 +1,5 @@
-#ifndef BEAM_REACTORERROR_HPP
-#define BEAM_REACTORERROR_HPP
+#ifndef BEAM_REACTOR_ERROR_HPP
+#define BEAM_REACTOR_ERROR_HPP
 #include "Beam/Reactors/ReactorException.hpp"
 #include "Beam/Reactors/Reactors.hpp"
 
@@ -25,7 +25,7 @@ namespace Reactors {
   };
 
   inline ReactorError::ReactorError(std::string message)
-      : ReactorException(std::move(message)) {}
+      : ReactorException{std::move(message)} {}
 
   inline ReactorError::~ReactorError() throw() {}
 }

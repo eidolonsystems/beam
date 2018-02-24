@@ -1,16 +1,14 @@
-#ifndef BEAM_ALARMREACTOR_HPP
-#define BEAM_ALARMREACTOR_HPP
+#ifndef BEAM_ALARM_REACTOR_HPP
+#define BEAM_ALARM_REACTOR_HPP
 #include <type_traits>
-#include <utility>
 #include <boost/date_time/posix_time/ptime.hpp>
 #include <boost/optional/optional.hpp>
 #include "Beam/Pointers/Dereference.hpp"
 #include "Beam/Pointers/LocalPtr.hpp"
-#include "Beam/Pointers/UniquePtr.hpp"
-#include "Beam/Queues/CallbackQueue.hpp"
-#include "Beam/Queues/StatePublisher.hpp"
+#include "Beam/Queues/MultiQueueReader.hpp"
+#include "Beam/Reactors/ConstantReactor.hpp"
 #include "Beam/Reactors/FunctionReactor.hpp"
-#include "Beam/Reactors/PublisherReactor.hpp"
+#include "Beam/Reactors/QueueReactor.hpp"
 #include "Beam/Reactors/Reactors.hpp"
 #include "Beam/Threading/Timer.hpp"
 #include "Beam/Utilities/Functional.hpp"
@@ -26,17 +24,17 @@ namespace Reactors {
     GetOptionalLocalPtr<TimeClientType> m_timeClient;
     std::unique_ptr<Timer> m_timer;
     boost::optional<boost::posix_time::ptime> m_expiry;
-    StatePublisher<Threading::Timer::Result> m_expiryPublisher;
-    std::shared_ptr<Reactor<Threading::Timer::Result>> m_expiryReactor;
-    CallbackQueue m_callbacks;
+    std::shared_ptr<MultiQueueReader<Threading::Timer::Result>> m_expiryQueue;
 
     template<typename TimerFactoryForward, typename TimeClientForward>
     AlarmReactorCore(TimerFactoryForward&& timerFactory,
         TimeClientForward&& timeClient)
-        : m_timerFactory(std::forward<TimerFactoryForward>(timerFactory)),
-          m_timeClient(std::forward<TimeClientForward>(timeClient)),
-          m_expiryPublisher(Threading::Timer::Result::NONE),
-          m_expiryReactor(MakePublisherReactor(&m_expiryPublisher)) {}
+        : m_timerFactory{std::forward<TimerFactoryForward>(timerFactory)},
+          m_timeClient{std::forward<TimeClientForward>(timeClient)},
+          m_expiryQueue{std::make_shared<
+            MultiQueueReader<Threading::Timer::Result>>()} {
+      m_expiryQueue->Push(Threading::Timer::Result::NONE);
+    }
 
     bool operator ()(const boost::posix_time::ptime& expiry,
         Threading::Timer::Result timerResult) {
@@ -51,11 +49,7 @@ namespace Reactors {
         }
         m_expiry = expiry;
         m_timer = m_timerFactory(expiry - currentTime);
-        m_timer->GetPublisher().Monitor(
-          m_callbacks.GetSlot<Threading::Timer::Result>(
-          [=] (Threading::Timer::Result result) {
-            m_expiryPublisher.Push(result);
-          }));
+        m_timer->GetPublisher().Monitor(m_expiryQueue->GetWriter());
         m_timer->Start();
         return false;
       } else if(timerResult == Threading::Timer::Result::EXPIRED) {
@@ -70,14 +64,13 @@ namespace Reactors {
   //! Makes a Reactor that evaluates to <code>true</code> after a specified
   //! time.
   /*!
-    \param timerFactory Builds Timers used to measure time.
     \param timeClient Used to get the current time.
+    \param timerFactory Builds Timers used to measure time.
     \param expiry The time after which the Reactor will evaluate to
            <code>true</code>.
   */
   template<typename TimerFactory, typename TimeClient, typename ExpiryReactor>
-  std::tuple<std::shared_ptr<Reactor<bool>>, std::shared_ptr<Event>>
-      MakeAlarmReactor(TimerFactory&& timerFactory, TimeClient&& timeClient,
+  auto MakeAlarmReactor(TimeClient&& timeClient, TimerFactory&& timerFactory,
       ExpiryReactor&& expiry) {
     using BaseTimerFactory = typename std::decay<TimerFactory>::type;
     using BaseTimeClient = typename std::decay<TimeClient>::type;
@@ -85,12 +78,27 @@ namespace Reactors {
       AlarmReactorCore<BaseTimerFactory, BaseTimeClient>>(
       std::forward<TimerFactory>(timerFactory),
       std::forward<TimeClient>(timeClient)));
-    auto timerReactor = core.GetFunction().m_expiryReactor;
-    auto alarmEvent = std::dynamic_pointer_cast<Event>(
-      core.GetFunction().m_expiryReactor);
-    auto reactor = MakeFunctionReactor(std::move(core),
-      std::forward<ExpiryReactor>(expiry), std::move(timerReactor));
-    return std::make_tuple(reactor, alarmEvent);
+    auto timerReactor = MakeQueueReactor(
+      std::static_pointer_cast<QueueReader<Threading::Timer::Result>>(
+      core.GetFunction().m_expiryQueue));
+    return MakeFunctionReactor(std::move(core),
+      Lift(std::forward<ExpiryReactor>(expiry)), std::move(timerReactor));
+  }
+
+  //! Makes a Reactor that evaluates to <code>true</code> after a specified
+  //! time.
+  /*!
+    \param timeClient Used to get the current time.
+    \param timerFactory Builds Timers used to measure time.
+    \param expiry The time after which the Reactor will evaluate to
+           <code>true</code>.
+  */
+  template<typename TimerFactory, typename TimeClient, typename ExpiryReactor>
+  auto Alarm(TimeClient&& timeClient, TimerFactory&& timerFactory,
+      ExpiryReactor&& expiry) {
+    return MakeAlarmReactor(std::forward<TimeClient>(timeClient),
+      std::forward<TimerFactory>(timerFactory),
+      std::forward<ExpiryReactor>(expiry));
   }
 }
 }

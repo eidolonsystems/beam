@@ -16,7 +16,7 @@ namespace TimeService {
    */
   class VirtualTimeClient : private boost::noncopyable {
     public:
-      virtual ~VirtualTimeClient();
+      virtual ~VirtualTimeClient() = default;
 
       virtual boost::posix_time::ptime GetTime() = 0;
 
@@ -27,7 +27,7 @@ namespace TimeService {
     protected:
 
       //! Constructs a VirtualTimeClient.
-      VirtualTimeClient();
+      VirtualTimeClient() = default;
   };
 
   /*! \class WrapperTimeClient
@@ -39,7 +39,7 @@ namespace TimeService {
     public:
 
       //! The TimeClient to wrap.
-      typedef typename TryDereferenceType<ClientType>::type Client;
+      using Client = GetTryDereferenceType<ClientType>;
 
       //! Constructs a WrapperTimeClient.
       /*!
@@ -48,16 +48,20 @@ namespace TimeService {
       template<typename TimeClientForward>
       WrapperTimeClient(TimeClientForward&& client);
 
-      virtual ~WrapperTimeClient();
+      //! Returns the wrapped client.
+      const Client& GetClient() const;
 
-      virtual boost::posix_time::ptime GetTime();
+      //! Returns the wrapped client.
+      Client& GetClient();
 
-      virtual void Open();
+      virtual boost::posix_time::ptime GetTime() override;
 
-      virtual void Close();
+      virtual void Open() override;
+
+      virtual void Close() override;
 
     private:
-      typename OptionalLocalPtr<ClientType>::type m_client;
+      GetOptionalLocalPtr<ClientType> m_client;
   };
 
   //! Wraps a TimeClient into a VirtualTimeClient.
@@ -71,17 +75,33 @@ namespace TimeService {
       std::forward<TimeClient>(client));
   }
 
-  inline VirtualTimeClient::~VirtualTimeClient() {}
-
-  inline VirtualTimeClient::VirtualTimeClient() {}
+  //! Wraps a TimeClient into a VirtualTimeClient.
+  /*!
+    \param initializer Initializes client to wrap.
+  */
+  template<typename TimeClient, typename... Args>
+  std::unique_ptr<VirtualTimeClient> MakeVirtualTimeClient(
+      Initializer<Args...>&& initializer) {
+    return std::make_unique<WrapperTimeClient<TimeClient>>(
+      std::move(initializer));
+  }
 
   template<typename ClientType>
   template<typename TimeClientForward>
   WrapperTimeClient<ClientType>::WrapperTimeClient(TimeClientForward&& client)
-      : m_client(std::forward<TimeClientForward>(client)) {}
+      : m_client{std::forward<TimeClientForward>(client)} {}
 
   template<typename ClientType>
-  WrapperTimeClient<ClientType>::~WrapperTimeClient() {}
+  const typename WrapperTimeClient<ClientType>::Client&
+      WrapperTimeClient<ClientType>::GetClient() const {
+    return *m_client;
+  }
+
+  template<typename ClientType>
+  typename WrapperTimeClient<ClientType>::Client&
+      WrapperTimeClient<ClientType>::GetClient() {
+    return *m_client;
+  }
 
   template<typename ClientType>
   boost::posix_time::ptime WrapperTimeClient<ClientType>::GetTime() {

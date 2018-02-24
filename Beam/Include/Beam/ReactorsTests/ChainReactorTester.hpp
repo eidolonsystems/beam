@@ -1,5 +1,5 @@
-#ifndef BEAM_CHAINREACTORTESTER_HPP
-#define BEAM_CHAINREACTORTESTER_HPP
+#ifndef BEAM_CHAIN_REACTOR_TESTER_HPP
+#define BEAM_CHAIN_REACTOR_TESTER_HPP
 #include <cppunit/extensions/HelperMacros.h>
 #include "Beam/ReactorsTests/ReactorTests.hpp"
 #include "Beam/Utilities/BeamWorkaround.hpp"
@@ -14,12 +14,16 @@ namespace Tests {
   class ChainReactorTester : public CPPUNIT_NS::TestFixture {
     public:
 
-      //! Tests chaining two ranges together.
-      void TestRange();
+      //! Tests chaining two constants together.
+      void TestConstantChain();
+
+      //! Tests chaining a constant with a NoneReactor.
+      void TestSingleValue();
 
     private:
       CPPUNIT_TEST_SUITE(ChainReactorTester);
-        CPPUNIT_TEST(TestRange);
+        CPPUNIT_TEST(TestConstantChain);
+        CPPUNIT_TEST(TestSingleValue);
       BEAM_CPPUNIT_TEST_SUITE_END();
   };
 }

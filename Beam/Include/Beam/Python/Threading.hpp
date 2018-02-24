@@ -1,5 +1,5 @@
-#ifndef BEAM_PYTHONTHREADING_HPP
-#define BEAM_PYTHONTHREADING_HPP
+#ifndef BEAM_PYTHON_THREADING_HPP
+#define BEAM_PYTHON_THREADING_HPP
 #include "Beam/Python/Python.hpp"
 
 namespace Beam {

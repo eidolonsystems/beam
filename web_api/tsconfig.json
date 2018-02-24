@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "es2017",
+    "noImplicitAny": true,
+    "sourceMap": true,
+    "declaration": true,
+    "removeComments": true,
+    "preserveConstEnums": true,
+    "experimentalDecorators": true,
+    "outDir": "./library/beam",
+  },
+  "include": [
+    "./source/*.ts"
+  ]
+}

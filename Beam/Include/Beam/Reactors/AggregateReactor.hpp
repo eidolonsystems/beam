@@ -1,12 +1,11 @@
-#ifndef BEAM_AGGREGATEREACTOR_HPP
-#define BEAM_AGGREGATEREACTOR_HPP
+#ifndef BEAM_AGGREGATE_REACTOR_HPP
+#define BEAM_AGGREGATE_REACTOR_HPP
 #include <utility>
 #include <vector>
+#include "Beam/Pointers/LocalPtr.hpp"
 #include "Beam/Reactors/Reactor.hpp"
-#include "Beam/Reactors/ReactorContainer.hpp"
 #include "Beam/Reactors/Reactors.hpp"
-#include "Beam/Utilities/BeamWorkaround.hpp"
-#include "Beam/Utilities/Expect.hpp"
+#include "Beam/Reactors/ReactorUnavailableException.hpp"
 
 namespace Beam {
 namespace Reactors {
@@ -20,7 +19,7 @@ namespace Reactors {
   class AggregateReactor : public Reactor<GetReactorType<
       GetReactorType<ProducerReactorType>>>{
     public:
-      typedef GetReactorType<GetReactorType<ProducerReactorType>> Type;
+      using Type = GetReactorType<GetReactorType<ProducerReactorType>>;
 
       //! Constructs an AggregateReactor.
       /*!
@@ -29,26 +28,19 @@ namespace Reactors {
       template<typename ProducerReactorForward>
       AggregateReactor(ProducerReactorForward&& producer);
 
-      virtual void Commit();
+      virtual BaseReactor::Update Commit(int sequenceNumber) override final;
 
-      virtual Type Eval() const;
+      virtual Type Eval() const override final;
 
     private:
-      struct Conditions {
-        bool m_producerHasUpdate;
-        bool m_hasPendingValue;
-        bool m_producerIsComplete;
-      };
-      typedef GetReactorType<ProducerReactorType> Reactor;
-      ReactorContainer<ProducerReactorType> m_producer;
-      std::vector<std::unique_ptr<ReactorContainer<Reactor>>> m_reactors;
-      int m_state;
+      using ChildReactor = GetReactorType<ProducerReactorType>;
+      GetOptionalLocalPtr<ProducerReactorType> m_producer;
+      std::vector<ChildReactor> m_children;
       Expect<Type> m_value;
-
-      void S0(Conditions& conditions);
-      void S1(Conditions& conditions);
-      void S2(Conditions& conditions);
-      void S3();
+      bool m_isProducerComplete;
+      int m_currentSequenceNumber;
+      BaseReactor::Update m_update;
+      BaseReactor::Update m_state;
   };
 
   //! Makes an AggregateReactor.
@@ -56,8 +48,7 @@ namespace Reactors {
     \param producer The Reactor that produces the Reactors to aggregate.
   */
   template<typename ProducerReactor>
-  std::shared_ptr<AggregateReactor<typename std::decay<ProducerReactor>::type>>
-      MakeAggregateReactor(ProducerReactor&& producer) {
+  auto MakeAggregateReactor(ProducerReactor&& producer) {
     return std::make_shared<AggregateReactor<
       typename std::decay<ProducerReactor>::type>>(
       std::forward<ProducerReactor>(producer));
@@ -67,78 +58,69 @@ namespace Reactors {
   template<typename ProducerReactorForward>
   AggregateReactor<ProducerReactorType>::AggregateReactor(
       ProducerReactorForward&& producer)
-BEAM_SUPPRESS_THIS_INITIALIZER()
-      : m_producer(std::forward<ProducerReactorForward>(producer), *this),
-        m_state(0) {}
-BEAM_UNSUPPRESS_THIS_INITIALIZER()
+      : m_producer{std::forward<ProducerReactorForward>(producer)},
+        m_value{std::make_exception_ptr(ReactorUnavailableException{})},
+        m_isProducerComplete{false},
+        m_currentSequenceNumber{-1},
+        m_state{BaseReactor::Update::NONE} {}
 
   template<typename ProducerReactorType>
-  void AggregateReactor<ProducerReactorType>::Commit() {
-    Conditions conditions;
-    conditions.m_producerHasUpdate = m_producer.Commit();
-    conditions.m_producerIsComplete = true;
-    conditions.m_hasPendingValue = false;
-    for(auto& reactor : m_reactors) {
-      if(reactor->Commit() && !conditions.m_hasPendingValue) {
-        m_value = reactor->GetValue();
-        conditions.m_hasPendingValue = true;
-      }
-      conditions.m_producerIsComplete &= reactor->IsComplete();
+  BaseReactor::Update AggregateReactor<ProducerReactorType>::Commit(
+      int sequenceNumber) {
+    if(m_currentSequenceNumber == sequenceNumber) {
+      return m_update;
+    } else if(sequenceNumber == 0 && m_currentSequenceNumber != -1) {
+      return m_state;
+    } else if(IsComplete(m_state)) {
+      return BaseReactor::Update::NONE;
     }
-    conditions.m_producerIsComplete &= m_producer.IsComplete();
-    return S0(conditions);
+    auto producerUpdate = [&] {
+      if(m_isProducerComplete) {
+        return BaseReactor::Update::NONE;
+      }
+      auto update = m_producer->Commit(sequenceNumber);
+      m_isProducerComplete = IsComplete(update);
+      return update;
+    }();
+    auto update = BaseReactor::Update::NONE;
+    if(HasEval(producerUpdate)) {
+      try {
+        auto child = m_producer->Eval();
+        auto childUpdate = child->Commit(0);
+        if(HasEval(childUpdate)) {
+          m_value = TryEval(*child);
+          update = BaseReactor::Update::EVAL;
+        }
+        if(!IsComplete(childUpdate)) {
+          m_children.push_back(std::move(child));
+        }
+      } catch(const std::exception&) {
+        m_value = std::current_exception();
+        update = BaseReactor::Update::EVAL;
+      }
+    }
+    m_children.erase(std::remove_if(m_children.begin(), m_children.end(),
+      [&] (auto& child) {
+        auto childUpdate = child->Commit(sequenceNumber);
+        if(update == BaseReactor::Update::NONE && HasEval(childUpdate)) {
+          m_value = TryEval(*child);
+          update = BaseReactor::Update::EVAL;
+        }
+        return IsComplete(childUpdate);
+      }), m_children.end());
+    if(m_isProducerComplete && m_children.empty()) {
+      Combine(update, BaseReactor::Update::COMPLETE);
+    }
+    m_currentSequenceNumber = sequenceNumber;
+    m_update = update;
+    Combine(m_state, update);
+    return update;
   }
 
   template<typename ProducerReactorType>
   typename AggregateReactor<ProducerReactorType>::Type
       AggregateReactor<ProducerReactorType>::Eval() const {
     return m_value.Get();
-  }
-
-  template<typename ProducerReactorType>
-  void AggregateReactor<ProducerReactorType>::S0(Conditions& conditions) {
-    m_state = 0;
-    if(conditions.m_producerHasUpdate) {
-
-      // C0
-      return S1(conditions);
-    } else if(conditions.m_hasPendingValue) {
-
-      // C1
-      return S2(conditions);
-    } else if(conditions.m_producerIsComplete) {
-
-      // C2
-      return S3();
-    }
-  }
-
-  template<typename ProducerReactorType>
-  void AggregateReactor<ProducerReactorType>::S1(Conditions& conditions) {
-    m_state = 1;
-    auto reactor = std::make_unique<ReactorContainer<Reactor>>(
-      m_producer.Eval(), *this);
-    conditions.m_producerHasUpdate = false;
-    if(reactor->Commit() && !conditions.m_hasPendingValue) {
-      m_value = reactor->GetValue();
-      conditions.m_hasPendingValue = true;
-    }
-    m_reactors.push_back(std::move(reactor));
-    return S0(conditions);
-  }
-
-  template<typename ProducerReactorType>
-  void AggregateReactor<ProducerReactorType>::S2(Conditions& conditions) {
-    m_state = 2;
-    this->IncrementSequenceNumber();
-    conditions.m_hasPendingValue = false;
-    return S0(conditions);
-  }
-
-  template<typename ProducerReactorType>
-  void AggregateReactor<ProducerReactorType>::S3() {
-    m_state = 3;
-    this->SetComplete();
   }
 }
 }

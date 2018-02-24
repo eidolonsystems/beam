@@ -39,11 +39,28 @@ namespace WebServices {
         std::vector<HttpHeader> headers, std::vector<Cookie> cookies,
         IO::SharedBuffer body);
 
+      //! Returns the version.
+      const HttpVersion& GetVersion() const;
+
+      //! Sets the version.
+      void SetVersion(const HttpVersion& version);
+
       //! Returns the status code.
       HttpStatusCode GetStatusCode() const;
 
       //! Sets the status code.
       void SetStatusCode(HttpStatusCode statusCode);
+
+      //! Returns the value of a header.
+      /*!
+        \param name The name of the header.
+        \return The value of the header with the specified <i>name</i>.
+      */
+      boost::optional<const std::string&> GetHeader(
+        const std::string& name) const;
+
+      //! Returns all headers.
+      const std::vector<HttpHeader>& GetHeaders() const;
 
       //! Sets a header, adding it if it doesn't exist.
       /*!
@@ -51,15 +68,33 @@ namespace WebServices {
       */
       void SetHeader(HttpHeader header);
 
+      //! Returns all Cookies.
+      const std::vector<Cookie>& GetCookies() const;
+
+      //! Returns a Cookie with a specified name.
+      /*!
+        \param name The name of the Cookie.
+        \return The Cookie with the specified name or an empty Cookie if the
+                Cookie was not found.
+      */
+      boost::optional<const Cookie&> GetCookie(const std::string& name) const;
+
       //! Sets a Cookie, adding it if it doesn't exist.
       /*!
         \param cookie The Cookie to set.
       */
       void SetCookie(Cookie cookie);
 
+      //! Returns the body.
+      const IO::SharedBuffer& GetBody() const;
+
       //! Sets the body.
       void SetBody(IO::SharedBuffer body);
 
+      //! Outputs this response into a Buffer.
+      /*!
+        \param buffer The Buffer to output this response to.
+      */
       template<typename Buffer>
       void Encode(Out<Buffer> buffer) const;
 
@@ -70,6 +105,14 @@ namespace WebServices {
       std::vector<Cookie> m_cookies;
       IO::SharedBuffer m_body;
   };
+
+  inline std::ostream& operator <<(std::ostream& sink,
+      const HttpResponse& response) {
+    IO::SharedBuffer buffer;
+    response.Encode(Store(buffer));
+    sink << buffer;
+    return sink;
+  }
 
   inline HttpResponse::HttpResponse()
       : HttpResponse{HttpStatusCode::OK} {}
@@ -90,12 +133,36 @@ namespace WebServices {
         m_cookies{std::move(cookies)},
         m_body{std::move(body)} {}
 
+  inline const HttpVersion& HttpResponse::GetVersion() const {
+    return m_version;
+  }
+
+  inline void HttpResponse::SetVersion(const HttpVersion& version) {
+    m_version = version;
+  }
+
   inline HttpStatusCode HttpResponse::GetStatusCode() const {
     return m_statusCode;
   }
 
   inline void HttpResponse::SetStatusCode(HttpStatusCode statusCode) {
     m_statusCode = statusCode;
+  }
+
+  inline boost::optional<const std::string&> HttpResponse::GetHeader(
+      const std::string& name) const {
+    auto header = std::find_if(m_headers.begin(), m_headers.end(),
+      [&] (const HttpHeader& value) {
+        return value.GetName() == name;
+      });
+    if(header == m_headers.end()) {
+      return boost::none;
+    }
+    return header->GetValue();
+  }
+
+  inline const std::vector<HttpHeader>& HttpResponse::GetHeaders() const {
+    return m_headers;
   }
 
   inline void HttpResponse::SetHeader(HttpHeader header) {
@@ -110,6 +177,22 @@ namespace WebServices {
     }
   }
 
+  inline const std::vector<Cookie>& HttpResponse::GetCookies() const {
+    return m_cookies;
+  }
+
+  inline boost::optional<const Cookie&> HttpResponse::GetCookie(
+      const std::string& name) const {
+    auto cookie = std::find_if(m_cookies.begin(), m_cookies.end(),
+      [&] (const Cookie& value) {
+        return value.GetName() == name;
+      });
+    if(cookie == m_cookies.end()) {
+      return boost::none;
+    }
+    return *cookie;
+  }
+
   inline void HttpResponse::SetCookie(Cookie cookie) {
     auto c = std::find_if(m_cookies.begin(), m_cookies.end(),
       [&] (const Cookie& value) {
@@ -120,6 +203,10 @@ namespace WebServices {
     } else {
       *c = std::move(cookie);
     }
+  }
+
+  inline const IO::SharedBuffer& HttpResponse::GetBody() const {
+    return m_body;
   }
 
   inline void HttpResponse::SetBody(IO::SharedBuffer body) {

@@ -1,12 +1,8 @@
 #ifndef BEAM_PYTHON_HPP
 #define BEAM_PYTHON_HPP
-#include <functional>
 #include <utility>
-#include <boost/mpl/vector.hpp>
-#include <boost/python/object.hpp>
-#include <boost/python/make_function.hpp>
-#include <boost/python/manage_new_object.hpp>
-#include <boost/python/return_value_policy.hpp>
+#include <vector>
+#include <boost/python.hpp>
 #include "Beam/Routines/Scheduler.hpp"
 #include "Beam/Utilities/DllExport.hpp"
 
@@ -16,37 +12,57 @@ BEAM_EXTERN template class BEAM_EXPORT_DLL
 BEAM_EXTERN template struct BEAM_EXPORT_DLL
   Beam::Routines::Details::CurrentRoutineGlobal<void>;
 
+#ifdef _MSC_VER
+#define BEAM_DEFINE_PYTHON_POINTER_LINKER(T)                                   \
+  namespace boost {                                                            \
+    template<> inline const volatile T* get_pointer(const volatile T* p) {     \
+      return p;                                                                \
+    }                                                                          \
+  }
+#else
+#define BEAM_DEFINE_PYTHON_POINTER_LINKER(T)
+#endif
+
 namespace Beam {
 namespace Python {
 
-  //! Wraps a function returning a unique_ptr into a Python callable managing
-  //! that object.
+  //! Returns a PyObject that manages a pointer to an object.
   /*!
-    \param f The function to wrap.
-    \return A Python callable that invokes <i>f</i>.
+    \param object The object to manage.
+    \return A PyObject managing the <i>object</i>.
   */
-  template<typename R, typename T, typename... Args, typename CallPolicies>
-  boost::python::object ReleaseUniquePtr(R (T::* f)(Args...),
-      CallPolicies callPolicies) {
-    std::function<typename R::pointer (T*, Args...)> callable =
-      [=] (T* object, Args... args) -> typename R::pointer {
-        return (object->*f)(std::forward<Args>(args)...).release();
-      };
-    using signature = boost::mpl::vector<typename R::pointer, T*, Args...>;
-    return boost::python::make_function(callable, callPolicies, signature());
+  template<class T>
+  auto MakeManagedPointer(T* object) {
+    return typename boost::python::manage_new_object::apply<T*>::type{}(object);
   }
 
-  //! Wraps a function returning a unique_ptr into a Python callable managing
-  //! that object.
+  //! Returns a Python object that manages a pointer to an object.
   /*!
-    \param f The function to wrap.
-    \return A Python callable that invokes <i>f</i>.
+    \param object The object to manage.
+    \return A Python object managing the <i>object</i>.
   */
-  template<typename R, typename T, typename... Args>
-  boost::python::object ReleaseUniquePtr(R (T::* f)(Args...)) {
-    return ReleaseUniquePtr(f,
-      boost::python::return_value_policy<boost::python::manage_new_object>());
+  template<typename T>
+  auto MakeManagedObject(T* object) {
+    return boost::python::object{
+      boost::python::detail::new_reference(MakeManagedPointer(object))};
   }
+
+  //! Converts a Python list to an std::vector<T>.
+  /*!
+    \param list The list to convert.
+    \return The <i>list</i> converted into a vector.
+  */
+  template<typename T>
+  auto ToVector(const boost::python::list& list) {
+    std::vector<T> result;
+    for(int i = 0; i < boost::python::len(list); ++i) {
+      result.push_back(boost::python::extract<T>(list[i]));
+    }
+    return result;
+  }
+
+  //! Prints a Python error message.
+  void PrintError();
 }
 }
 

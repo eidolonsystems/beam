@@ -1,63 +1,72 @@
-#ifndef BEAM_RANGEREACTOR_HPP
-#define BEAM_RANGEREACTOR_HPP
-#include <tuple>
+#ifndef BEAM_RANGE_REACTOR_HPP
+#define BEAM_RANGE_REACTOR_HPP
 #include <utility>
+#include "Beam/Pointers/Ref.hpp"
+#include "Beam/Reactors/BasicReactor.hpp"
+#include "Beam/Reactors/ConstantReactor.hpp"
 #include "Beam/Reactors/FunctionReactor.hpp"
 #include "Beam/Reactors/Reactors.hpp"
-#include "Beam/Reactors/TriggeredReactor.hpp"
 
 namespace Beam {
 namespace Reactors {
+namespace Details {
   template<typename ResultType>
   struct RangeReactorCore {
     using Result = ResultType;
     bool m_isInitialized;
-    std::shared_ptr<TriggeredReactor<Result>> m_trigger;
+    std::shared_ptr<BasicReactor<Result>> m_iterator;
 
     RangeReactorCore()
-        : m_isInitialized(false),
-          m_trigger(std::make_shared<TriggeredReactor<Result>>()) {
-      m_trigger->SetValue(Result());
-      m_trigger->Trigger();
-      m_trigger->Execute();
+        : m_isInitialized{false},
+          m_iterator{std::make_shared<BasicReactor<Result>>()} {
+      m_iterator->Update(Result{});
     }
 
-    Result operator ()(const Result& lower, const Result& upper,
-        const Result& last) {
+    boost::optional<Result> operator ()(const Result& lower,
+        const Result& upper, const Result& last) {
       if(m_isInitialized) {
         if(last >= upper) {
-          return last;
+          return boost::none;
         }
         if(last + 1 == upper) {
-          m_trigger->SetComplete();
+          m_iterator->SetComplete();
         } else {
-          m_trigger->SetValue(last + 1);
+          m_iterator->Update(last + 1);
         }
-        m_trigger->Trigger();
         return last + 1;
       }
       m_isInitialized = true;
-      m_trigger->SetValue(lower);
-      m_trigger->Trigger();
+      m_iterator->Update(lower);
       return lower;
     }
   };
+}
 
   //! Builds a Reactor that produces a range of values.
   /*!
     \param lower The Reactor producing the first value in the range.
     \param upper The Reactor producing the last value in the range.
   */
-  template<typename LowerReactor, typename UpperReactor>
-  std::tuple<std::shared_ptr<Reactor<GetReactorType<LowerReactor>>>,
-      std::shared_ptr<Event>> MakeRangeReactor(LowerReactor&& lower,
-      UpperReactor&& upper) {
-    RangeReactorCore<GetReactorType<LowerReactor>> core;
-    auto reactor = MakeFunctionReactor(core, std::forward<LowerReactor>(lower),
-      std::forward<UpperReactor>(upper), core.m_trigger);
-    return std::make_tuple(
-      std::static_pointer_cast<Reactor<GetReactorType<LowerReactor>>>(reactor),
-      std::static_pointer_cast<Event>(core.m_trigger));
+  template<typename Lower, typename Upper>
+  auto MakeRangeReactor(Lower&& lower, Upper&& upper) {
+    auto lowerReactor = Lift(std::forward<Lower>(lower));
+    auto upperReactor = Lift(std::forward<Upper>(upper));
+    using Reactor = decltype(*lowerReactor);
+    Details::RangeReactorCore<GetReactorType<Reactor>> core;
+    return MakeFunctionReactor(core,
+      std::forward<decltype(lowerReactor)>(lowerReactor),
+      std::forward<decltype(upperReactor)>(upperReactor), core.m_iterator);
+  }
+
+  //! Builds a Reactor that produces a range of values.
+  /*!
+    \param lower The Reactor producing the first value in the range.
+    \param upper The Reactor producing the last value in the range.
+  */
+  template<typename Lower, typename Upper>
+  auto Range(Lower&& lower, Upper&& upper) {
+    return MakeRangeReactor(std::forward<Lower>(lower),
+      std::forward<Upper>(upper));
   }
 }
 }

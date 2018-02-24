@@ -8,8 +8,12 @@ namespace Tasks {
   class AggregateTaskFactory;
   class BasicTask;
   template<typename T> class BasicTaskFactory;
+  class ChainedTask;
+  class ChainedTaskFactory;
   class IdleTask;
   class IdleTaskFactory;
+  template<typename PackageType> class PackagedTask;
+  template<typename PackageType> class PackagedTaskFactory;
   class ReactorMonitorTask;
   class ReactorMonitorTaskFactory;
   class ReactorTask;
@@ -24,7 +28,7 @@ namespace Tasks {
   class VirtualTaskFactory;
   class WhenTask;
   class WhenTaskFactory;
-  typedef ClonePtr<VirtualTaskFactory> TaskFactory;
+  using TaskFactory = ClonePtr<VirtualTaskFactory>;
 }
 }
 

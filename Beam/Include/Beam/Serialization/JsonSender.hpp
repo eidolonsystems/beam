@@ -9,6 +9,31 @@
 
 namespace Beam {
 namespace Serialization {
+namespace Details {
+  inline std::string JsonEscape(const std::string& source) {
+    std::string result;
+    for(auto c : source) {
+      if(c == '\\') {
+        result += "\\\\";
+      } else if(c == '\n') {
+        result += "\\n";
+      } else if(c == '\r') {
+        result += "\\r";
+      } else if(c == '\"') {
+        result += "\\\"";
+      } else if(c == '\b') {
+        result += "\\b";
+      } else if(c == '\f') {
+        result += "\\f";
+      } else if(c == '\t') {
+        result += "\\t";
+      } else {
+        result += c;
+      }
+    }
+    return result;
+  }
+}
 
   /*! \class JsonSender
       \brief Implements a Sender using JSON.
@@ -31,6 +56,12 @@ namespace Serialization {
       JsonSender(RefType<TypeRegistry<JsonSender>> registry);
 
       void SetSink(RefType<Sink> sink);
+
+      void Send(const char* name, const unsigned char& value);
+
+      void Send(const char* name, const signed char& value);
+
+      void Send(const char* name, const char& value);
 
       template<typename T>
       typename std::enable_if<std::is_fundamental<T>::value>::type Send(
@@ -82,6 +113,39 @@ namespace Serialization {
   }
 
   template<typename SinkType>
+  void JsonSender<SinkType>::Send(const char* name,
+      const unsigned char& value) {
+    Send(name, static_cast<int>(value));
+  }
+
+  template<typename SinkType>
+  void JsonSender<SinkType>::Send(const char* name, const signed char& value) {
+    Send(name, static_cast<int>(value));
+  }
+
+  template<typename SinkType>
+  void JsonSender<SinkType>::Send(const char* name, const char& value) {
+    if(value == '\0') {
+      Send(name, static_cast<int>(value));
+      return;
+    }
+    if(m_appendComma) {
+      m_sink->Append(',');
+    }
+    if(name != nullptr) {
+      m_sink->Append('\"');
+      m_sink->Append(name, std::strlen(name));
+      m_sink->Append('\"');
+      m_sink->Append(':');
+    }
+    auto v = ToString(value);
+    m_sink->Append('\"');
+    m_sink->Append(v.c_str(), v.size());
+    m_sink->Append('\"');
+    m_appendComma = true;
+  }
+
+  template<typename SinkType>
   template<typename T>
   typename std::enable_if<std::is_fundamental<T>::value>::type
       JsonSender<SinkType>::Send(const char* name, const T& value) {
@@ -103,18 +167,8 @@ namespace Serialization {
   template<typename T>
   typename std::enable_if<ImplementsConcept<T, IO::Buffer>::value>::type
       JsonSender<SinkType>::Send(const char* name, const T& value) {
-    if(m_appendComma) {
-      m_sink->Append(',');
-    }
-    if(name != nullptr) {
-      m_sink->Append('\"');
-      m_sink->Append(name, std::strlen(name));
-      m_sink->Append('\"');
-      m_sink->Append(':');
-    }
-    auto v = std::string{"\"\""};
-    m_sink->Append(v.c_str(), v.size());
-    m_appendComma = true;
+    auto base64String = IO::Base64Encode(value);
+    Send(name, base64String);
   }
 
   template<typename SinkType>
@@ -130,7 +184,8 @@ namespace Serialization {
       m_sink->Append(':');
     }
     m_sink->Append('\"');
-    m_sink->Append(value.c_str(), value.size());
+    auto escapedValue = Details::JsonEscape(value);
+    m_sink->Append(escapedValue.c_str(), escapedValue.size());
     m_sink->Append('\"');
     m_appendComma = true;
   }
@@ -188,6 +243,11 @@ namespace Serialization {
     m_sink->Append(']');
     m_appendComma = true;
   }
+
+  template<typename SinkType>
+  struct Inverse<JsonSender<SinkType>> {
+    using type = JsonReceiver<SinkType>;
+  };
 }
 
   template<typename SinkType>

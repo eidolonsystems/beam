@@ -1,5 +1,5 @@
-#ifndef BEAM_TRIGGERTESTER_HPP
-#define BEAM_TRIGGERTESTER_HPP
+#ifndef BEAM_TRIGGER_TESTER_HPP
+#define BEAM_TRIGGER_TESTER_HPP
 #include <cppunit/extensions/HelperMacros.h>
 #include "Beam/ReactorsTests/ReactorTests.hpp"
 #include "Beam/Utilities/BeamWorkaround.hpp"
@@ -14,12 +14,12 @@ namespace Tests {
   class TriggerTester : public CPPUNIT_NS::TestFixture {
     public:
 
-      //! Tests triggering an action immediately after a ReactorMonitor open's.
-      void TestOpenTrigger();
+      //! Tests signaling an update.
+      void TestSignalUpdate();
 
     private:
       CPPUNIT_TEST_SUITE(TriggerTester);
-        CPPUNIT_TEST(TestOpenTrigger);
+        CPPUNIT_TEST(TestSignalUpdate);
       BEAM_CPPUNIT_TEST_SUITE_END();
   };
 }

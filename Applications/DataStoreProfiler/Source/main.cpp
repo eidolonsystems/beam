@@ -61,9 +61,9 @@ namespace {
     dataStore.Open();
     dataStore.Clear();
     auto start = boost::posix_time::microsec_clock::universal_time();
-    int groups = std::ceil(std::log2(
-      static_cast<double>(config.m_indexCount) / config.m_seedCount));
-    int range = std::pow(2, groups);
+    int groups = static_cast<int>(std::ceil(std::log2(
+      static_cast<double>(config.m_indexCount) / config.m_seedCount)));
+    int range = static_cast<int>(std::pow(2, groups));
     auto timestamp = config.m_startTime;
     unordered_map<std::string, Queries::Sequence> sequences;
     for(auto i = 0; i < config.m_iterations; ++i) {
@@ -122,7 +122,7 @@ namespace {
 }
 
 int main(int argc, const char** argv) {
-  std::srand(std::time(nullptr));
+  std::srand(static_cast<unsigned int>(std::time(nullptr)));
   string configFile;
   try {
     CmdLine cmd{"", ' ', "1.0-r" DATA_STORE_PROFILER_VERSION
@@ -167,11 +167,11 @@ int main(int argc, const char** argv) {
   }
   MySqlDataStore mysqlDataStore{mySqlConfig.m_address, mySqlConfig.m_schema,
     mySqlConfig.m_username, mySqlConfig.m_password};
-//  Beam::BufferedDataStore<MySqlDataStore*> bufferedDataStore{&mysqlDataStore,
-//    profileConfig.m_bufferSize, Ref(threadPool)};
-//  Beam::SessionCachedDataStore<MySqlDataStore*> sessionCachedDataStore{
-//    &mysqlDataStore, 1000000};
-  ProfileWrites(mysqlDataStore, profileConfig);
-  ProfileReads(mysqlDataStore, profileConfig);
+  Beam::BufferedDataStore<MySqlDataStore*> bufferedDataStore{&mysqlDataStore,
+    profileConfig.m_bufferSize, Ref(threadPool)};
+  Beam::SessionCachedDataStore<Beam::BufferedDataStore<MySqlDataStore*>*>
+    sessionCachedDataStore{&bufferedDataStore, 1000000};
+  ProfileWrites(bufferedDataStore, profileConfig);
+  ProfileReads(bufferedDataStore, profileConfig);
   return 0;
 }

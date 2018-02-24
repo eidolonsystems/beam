@@ -2,6 +2,7 @@
 #define BEAM_REACTOR_HPP
 #include "Beam/Pointers/Dereference.hpp"
 #include "Beam/Reactors/BaseReactor.hpp"
+#include "Beam/Utilities/Expect.hpp"
 
 namespace Beam {
 namespace Reactors {
@@ -15,16 +16,12 @@ namespace Reactors {
     public:
 
       //! The type this Reactor evaluates to.
-      typedef T Type;
+      using Type = T;
 
-      virtual void Commit();
-
-      virtual Expect<void> GetBaseValue();
+      virtual const std::type_info& GetType() const;
 
       //! Evaluates this Reactor.
       virtual Type Eval() const = 0;
-
-      virtual const std::type_info& GetType() const;
 
     protected:
 
@@ -41,6 +38,31 @@ namespace Reactors {
     using type = typename GetTryDereferenceType<T>::Type;
   };
 
+  //! Invokes a Reactor's Eval method, wrapper any thrown exception in an
+  //! Expect.
+  /*!
+    \param reactor The Reactor to eval.
+    \return The result of the eval, capturing any thrown exception.
+  */
+  template<typename Reactor>
+  auto TryEval(const Reactor& reactor) {
+    return Try(
+      [&] {
+        return reactor.Eval();
+      });
+  }
+
+  //! Helper function for creating a Reactor factory.
+  /*!
+    \param f The function used to build the Reactor.
+  */
+  template<typename... Args, typename F>
+  auto Factory(F&& f) {
+    return [&] (std::shared_ptr<Reactor<Args>>... args) {
+      return f(args...);
+    };
+  }
+
   template<typename T>
   struct ReactorType<T, typename std::enable_if<
       std::is_same<GetTryDereferenceType<T>, BaseReactor>::value>::type> {
@@ -49,19 +71,6 @@ namespace Reactors {
 
   template<typename T>
   using GetReactorType = typename ReactorType<T>::type;
-
-  template<typename T>
-  void Reactor<T>::Commit() {}
-
-  template<typename T>
-  Expect<void> Reactor<T>::GetBaseValue() {
-    Expect<void> value;
-    value.Try(
-      [&] {
-        Eval();
-      });
-    return value;
-  }
 
   template<typename T>
   const std::type_info& Reactor<T>::GetType() const {

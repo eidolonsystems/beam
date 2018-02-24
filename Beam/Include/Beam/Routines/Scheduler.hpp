@@ -88,8 +88,8 @@ namespace Details {
 
   template<typename F>
   Routine::Id Scheduler::Spawn(F&& f, std::size_t stackSize) {
-    auto routine = std::make_shared<FunctionRoutine<F>>(std::forward<F>(f),
-      stackSize, Ref(*this));
+    auto routine = std::make_shared<FunctionRoutine<std::decay_t<F>>>(
+      std::forward<F>(f), stackSize, Ref(*this));
     routine->Bind(routine);
     Queue(*routine);
     Routine::Id id{++m_nextId, std::move(routine)};

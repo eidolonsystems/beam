@@ -55,7 +55,7 @@ namespace Routines {
   }
 
   inline void RoutineHandlerGroup::Add(Routine::Id id) {
-    RoutineHandler routine = id;
+    RoutineHandler routine{id};
     Add(std::move(routine));
   }
 

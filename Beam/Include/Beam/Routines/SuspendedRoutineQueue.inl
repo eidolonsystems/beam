@@ -10,10 +10,10 @@ namespace Routines {
       Lock&... lock) {
     SuspendedRoutineNode currentRoutine;
     Threading::With(*suspendedRoutines,
-      [&] (SuspendedRoutineQueue& queue) {
+      [&] (auto& queue) {
+        currentRoutine.m_routine->PendingSuspend();
         queue.push_back(currentRoutine);
       });
-    currentRoutine.m_routine->PendingSuspend();
     auto releases = std::make_tuple(Threading::Release(lock)...);
     Suspend();
   }
@@ -22,7 +22,7 @@ namespace Routines {
   void ResumeFront(Out<Threading::Sync<SuspendedRoutineQueue>>
       suspendedRoutines) {
     auto routine = Threading::With(*suspendedRoutines,
-      [] (SuspendedRoutineQueue& suspendedRoutines) {
+      [] (auto& suspendedRoutines) {
         if(suspendedRoutines.empty()) {
           return static_cast<Routine*>(nullptr);
         }
@@ -37,7 +37,7 @@ namespace Routines {
   void Resume(Out<Threading::Sync<SuspendedRoutineQueue>> suspendedRoutines) {
     SuspendedRoutineQueue resumedRoutines;
     Threading::With(*suspendedRoutines,
-      [&] (SuspendedRoutineQueue& suspendedRoutines) {
+      [&] (auto& suspendedRoutines) {
         resumedRoutines.swap(suspendedRoutines);
       });
     for(auto& routine : resumedRoutines) {

@@ -17,7 +17,7 @@ namespace Routines {
       /*!
         \param message A message describing the error.
       */
-      RoutineException(const std::string& message);
+      explicit RoutineException(const std::string& message);
   };
 
 

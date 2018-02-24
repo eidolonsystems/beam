@@ -1,76 +1,141 @@
-#ifndef BEAM_FUNCTIONREACTOR_HPP
-#define BEAM_FUNCTIONREACTOR_HPP
-#include <memory>
+#ifndef BEAM_FUNCTION_REACTOR_HPP
+#define BEAM_FUNCTION_REACTOR_HPP
 #include <tuple>
 #include <type_traits>
-#include <utility>
 #include <boost/fusion/adapted/std_tuple.hpp>
-#include <boost/fusion/algorithm/iteration/accumulate.hpp>
 #include <boost/fusion/algorithm/iteration/for_each.hpp>
 #include <boost/optional/optional.hpp>
-#include <boost/throw_exception.hpp>
 #include "Beam/Pointers/LocalPtr.hpp"
+#include "Beam/Reactors/CommitReactor.hpp"
 #include "Beam/Reactors/Reactor.hpp"
-#include "Beam/Reactors/ReactorContainer.hpp"
+#include "Beam/Reactors/ReactorUnavailableException.hpp"
 #include "Beam/Reactors/Reactors.hpp"
-#include "Beam/Utilities/ApplyTuple.hpp"
-#include "Beam/Utilities/BeamWorkaround.hpp"
 #include "Beam/Utilities/Expect.hpp"
-#include "Beam/Utilities/Functional.hpp"
 
 namespace Beam {
 namespace Reactors {
+
+  /*! \class FunctionEvaluation
+      \brief Stores the result of a function used in a FunctionReactor.
+      \tparam T The result of the function.
+   */
+  template<typename T>
+  struct FunctionEvaluation {
+    using Type = T;
+    boost::optional<Expect<Type>> m_value;
+    BaseReactor::Update m_update;
+
+    //! Constructs an uninitialized evaluation.
+    FunctionEvaluation();
+
+    //! Constructs a FunctionEvaluation resulting in a type and an EVAL.
+    /*!
+      \param value The value returned by the function.
+    */
+    FunctionEvaluation(Expect<Type> value);
+
+    //! Constructs a FunctionEvaluation resulting in a type and an EVAL.
+    /*!
+      \param value The value returned by the function.
+    */
+    FunctionEvaluation(Type value);
+
+    //! Constructs a FunctionEvaluation resulting in a type and an EVAL.
+    /*!
+      \param value The value returned by the function.
+    */
+    FunctionEvaluation(boost::optional<Expect<Type>> value);
+
+    //! Constructs a FunctionEvaluation resulting in a type and an EVAL.
+    /*!
+      \param value The value returned by the function.
+    */
+    FunctionEvaluation(boost::optional<Type> value);
+
+    //! Constructs a FunctionEvaluation resulting in a type and an update.
+    /*!
+      \param value The value returned by the function.
+      \param update The type of update.
+    */
+    FunctionEvaluation(Expect<Type> value, BaseReactor::Update update);
+
+    //! Constructs a FunctionEvaluation resulting in a type and an update.
+    /*!
+      \param value The value returned by the function.
+      \param update The type of update.
+    */
+    FunctionEvaluation(boost::optional<Expect<Type>> value,
+      BaseReactor::Update update);
+
+    //! Constructs a FunctionEvaluation resulting in a type and an update.
+    /*!
+      \param value The value returned by the function.
+      \param update The type of update.
+    */
+    FunctionEvaluation(boost::optional<Type> value, BaseReactor::Update update);
+
+    //! Constructs a FunctionEvaluation resulting in just an update.
+    /*!
+      \param update The type of update.
+    */
+    FunctionEvaluation(BaseReactor::Update update);
+  };
+
 namespace Details {
-  struct Commit {
-    typedef bool result_type;
-
-    template<typename T>
-    bool operator ()(bool state, T& reactor) const {
-      return reactor->Commit() || state;
-    }
-  };
-
-  struct IsInitialized {
-    typedef bool result_type;
-
-    template<typename T>
-    bool operator ()(bool state, const T& reactor) const {
-      return state && reactor->IsInitialized();
-    }
-  };
-
-  struct IsComplete {
-    typedef bool result_type;
-
-    template<typename T>
-    bool operator ()(bool state, const T& reactor) const {
-      return state && reactor->IsComplete();
-    }
-  };
-
-  template<typename T, typename U>
-  bool IsAssigned(Expect<T>& left, boost::optional<U>&& right) {
-    if(right.is_initialized()) {
-      left = std::move(*right);
-      return true;
-    }
-    return false;
-  }
-
-  template<typename T, typename U>
-  bool IsAssigned(Expect<T>& left, U&& right) {
-    left = std::move(right);
-    return true;
-  }
-
   template<typename T>
   struct FunctionReactorType {
-    typedef T type;
+    using type = T;
   };
 
   template<typename T>
   struct FunctionReactorType<boost::optional<T>> {
-    typedef T type;
+    using type = T;
+  };
+
+  template<typename T>
+  struct FunctionReactorType<FunctionEvaluation<T>> {
+    using type = T;
+  };
+
+  struct FunctionEval {
+    template<typename T>
+    auto operator ()(const Reactor<T>* reactor) const {
+      return reactor->Eval();
+    }
+
+    Expect<void> operator ()(const BaseReactor* reactor) const {
+
+      // TODO: Find a way to evaluate this.
+      return {};
+    }
+  };
+
+  template<typename T>
+  struct FunctionUpdateEval {
+    template<typename V, typename F, typename P>
+    BaseReactor::Update operator ()(V& value, F& function, const P& p) const {
+      auto evaluation = Apply(p,
+        [&] (const auto&... parameters) {
+          return FunctionEvaluation<T>{function(
+            Try(std::bind(FunctionEval{}, &*parameters))...)};
+        });
+      if(evaluation.m_value.is_initialized()) {
+        value = std::move(*evaluation.m_value);
+      }
+      return evaluation.m_update;
+    }
+  };
+
+  template<>
+  struct FunctionUpdateEval<void> {
+    template<typename V, typename F, typename P>
+    BaseReactor::Update operator ()(V& value, F& function, const P& p) const {
+      Apply(p,
+        [&] (const auto&... parameters) {
+          function(Try(std::bind(FunctionEval{}, &*parameters))...);
+        });
+      return BaseReactor::Update::EVAL;
+    }
   };
 }
 
@@ -84,12 +149,12 @@ namespace Details {
       typename std::decay<GetResultOf<FunctionType, const Expect<GetReactorType<
       ParameterTypes>>&...>>::type>::type> {
     public:
-      typedef typename Details::FunctionReactorType<typename std::decay<
-        GetResultOf<FunctionType, const Expect<GetReactorType<
-        ParameterTypes>>&...>>::type>::type Type;
+      using Type = typename Reactor<typename Details::FunctionReactorType<
+        typename std::decay<GetResultOf<FunctionType,
+        const Expect<GetReactorType<ParameterTypes>>&...>>::type>::type>::Type;
 
       //! The type of function to apply.
-      typedef FunctionType Function;
+      using Function = FunctionType;
 
       //! Constructs a FunctionReactor.
       /*!
@@ -100,17 +165,20 @@ namespace Details {
       FunctionReactor(FunctionForward&& function,
         ParameterForwards&&... parameters);
 
-      virtual void Commit();
+      virtual BaseReactor::Update Commit(int sequenceNumber) override final;
 
-      virtual Type Eval() const;
+      virtual Type Eval() const override final;
 
     private:
       Function m_function;
-      std::tuple<LocalPtr<ReactorContainer<ParameterTypes>>...>
-        m_parameters;
+      std::tuple<GetOptionalLocalPtr<ParameterTypes>...> m_parameters;
+      boost::optional<CommitReactor> m_commitReactor;
       Expect<Type> m_value;
+      int m_currentSequenceNumber;
+      BaseReactor::Update m_update;
+      BaseReactor::Update m_state;
 
-      void UpdateValue();
+      BaseReactor::Update UpdateEval();
   };
 
   //! Makes a FunctionReactor.
@@ -119,49 +187,147 @@ namespace Details {
     \param parameters The parameters to apply the <i>function</i> to.
   */
   template<typename Function, typename... Parameters>
-  std::shared_ptr<FunctionReactor<typename std::decay<Function>::type,
-      typename std::decay<Parameters>::type...>> MakeFunctionReactor(
-      Function&& f, Parameters&&... parameters) {
+  auto MakeFunctionReactor(Function&& f, Parameters&&... parameters) {
     return std::make_shared<FunctionReactor<typename std::decay<Function>::type,
       typename std::decay<Parameters>::type...>>(std::forward<Function>(f),
       std::forward<Parameters>(parameters)...);
+  }
+
+  //! Makes a FunctionEvaluation.
+  /*!
+    \param value The value to return.
+    \param update The state of the Reactor.
+  */
+  template<typename T>
+  auto MakeFunctionEvaluation(Expect<T> value, BaseReactor::Update update) {
+    return FunctionEvaluation<T>{std::move(value), update};
+  }
+
+  //! Makes a FunctionEvaluation.
+  /*!
+    \param value The value to return.
+    \param update The state of the Reactor.
+  */
+  template<typename T>
+  auto MakeFunctionEvaluation(boost::optional<Expect<T>> value,
+      BaseReactor::Update update) {
+    return FunctionEvaluation<T>{std::move(value), update};
+  }
+
+  //! Makes a FunctionEvaluation.
+  /*!
+    \param value The value to return.
+    \param update The state of the Reactor.
+  */
+  template<typename T>
+  auto MakeFunctionEvaluation(const T& value,
+      BaseReactor::Update update) {
+    return FunctionEvaluation<T>{value, update};
+  }
+
+  template<typename T>
+  FunctionEvaluation<T>::FunctionEvaluation()
+      : m_update{BaseReactor::Update::NONE} {}
+
+  template<typename T>
+  FunctionEvaluation<T>::FunctionEvaluation(Expect<Type> value)
+      : m_value{std::move(value)},
+        m_update{BaseReactor::Update::EVAL} {}
+
+  template<typename T>
+  FunctionEvaluation<T>::FunctionEvaluation(Type value)
+      : FunctionEvaluation<T>{Expect<Type>{std::move(value)}} {}
+
+  template<typename T>
+  FunctionEvaluation<T>::FunctionEvaluation(boost::optional<Expect<Type>> value)
+      : m_value{std::move(value)} {
+    if(m_value.is_initialized()) {
+      m_update = BaseReactor::Update::EVAL;
+    } else {
+      m_update = BaseReactor::Update::NONE;
+    }
+  }
+
+  template<typename T>
+  FunctionEvaluation<T>::FunctionEvaluation(boost::optional<Type> value)
+      : FunctionEvaluation{boost::optional<Expect<Type>>{std::move(value)}} {}
+
+  template<typename T>
+  FunctionEvaluation<T>::FunctionEvaluation(Expect<Type> value,
+      BaseReactor::Update update)
+      : m_value{std::move(value)},
+        m_update{update} {
+    Combine(m_update, BaseReactor::Update::EVAL);
+  }
+
+  template<typename T>
+  FunctionEvaluation<T>::FunctionEvaluation(boost::optional<Expect<Type>> value,
+      BaseReactor::Update update)
+      : m_value{std::move(value)},
+        m_update{update} {
+    if(m_value.is_initialized()) {
+      Combine(m_update, BaseReactor::Update::EVAL);
+    } else {
+      assert(m_update != BaseReactor::Update::EVAL);
+    }
+  }
+
+  template<typename T>
+  FunctionEvaluation<T>::FunctionEvaluation(boost::optional<Type> value,
+      BaseReactor::Update update)
+      : FunctionEvaluation{boost::optional<Expect<Type>>{
+          Expect<Type>{std::move(value)}}, update} {}
+
+  template<typename T>
+  FunctionEvaluation<T>::FunctionEvaluation(BaseReactor::Update update)
+      : m_value{boost::none},
+        m_update{update} {
+    assert(m_update != BaseReactor::Update::EVAL);
   }
 
   template<typename FunctionType, typename... ParameterTypes>
   template<typename FunctionForward, typename... ParameterForwards>
   FunctionReactor<FunctionType, ParameterTypes...>::FunctionReactor(
       FunctionForward&& function, ParameterForwards&&... parameters)
-BEAM_SUPPRESS_THIS_INITIALIZER()
-      : m_function(std::forward<FunctionForward>(function)),
-        m_parameters(Initialize(std::forward<ParameterForwards>(parameters),
-          *this)...) {
-BEAM_UNSUPPRESS_THIS_INITIALIZER()
-    if(sizeof...(ParameterTypes) == 0) {
-      UpdateValue();
-      this->SetComplete();
-    }
+      : m_function{std::forward<FunctionForward>(function)},
+        m_parameters{std::forward<ParameterForwards>(parameters)...},
+        m_value{std::make_exception_ptr(ReactorUnavailableException{})},
+        m_currentSequenceNumber{-1},
+        m_state{BaseReactor::Update::NONE} {
+    std::vector<BaseReactor*> children;
+    boost::fusion::for_each(m_parameters,
+      [&] (auto& child) {
+        children.push_back(&*child);
+      });
+    m_commitReactor.emplace(std::move(children));
   }
 
   template<typename FunctionType, typename... ParameterTypes>
-  void FunctionReactor<FunctionType, ParameterTypes...>::Commit() {
-    auto ignoreUpdate = this->IsComplete();
-    auto hasChange = boost::fusion::accumulate(m_parameters, false,
-      Details::Commit());
-    if(ignoreUpdate) {
-      return;
+  BaseReactor::Update FunctionReactor<FunctionType, ParameterTypes...>::Commit(
+      int sequenceNumber) {
+    if(m_currentSequenceNumber == sequenceNumber) {
+      return m_update;
+    } else if(sequenceNumber == 0 && m_currentSequenceNumber != -1) {
+      return m_state;
+    } else if(IsComplete(m_state)) {
+      return BaseReactor::Update::NONE;
     }
-    if(hasChange) {
-      auto isInitialized = this->IsInitialized() ||
-        boost::fusion::accumulate(m_parameters, true, Details::IsInitialized());
-      if(isInitialized) {
-        UpdateValue();
+    m_update = m_commitReactor->Commit(sequenceNumber);
+    if(HasEval(m_update)) {
+      auto evalUpdate = UpdateEval();
+      if(evalUpdate == BaseReactor::Update::NONE) {
+        if(IsComplete(m_update)) {
+          m_update = BaseReactor::Update::COMPLETE;
+        } else {
+          m_update = BaseReactor::Update::NONE;
+        }
+      } else if(IsComplete(evalUpdate)) {
+        Combine(m_update, BaseReactor::Update::COMPLETE);
       }
     }
-    auto isComplete = boost::fusion::accumulate(m_parameters, true,
-      Details::IsComplete());
-    if(isComplete) {
-      this->SetComplete();
-    }
+    m_currentSequenceNumber = sequenceNumber;
+    Combine(m_state, m_update);
+    return m_update;
   }
 
   template<typename FunctionType, typename... ParameterTypes>
@@ -171,18 +337,14 @@ BEAM_UNSUPPRESS_THIS_INITIALIZER()
   }
 
   template<typename FunctionType, typename... ParameterTypes>
-  void FunctionReactor<FunctionType, ParameterTypes...>::UpdateValue() {
+  BaseReactor::Update FunctionReactor<FunctionType, ParameterTypes...>::
+      UpdateEval() {
     try {
-      if(Details::IsAssigned(m_value, Apply(m_parameters,
-          [&] (const LocalPtr<ReactorContainer<ParameterTypes>>&...
-              parameters) {
-            return m_function(parameters->GetValue()...);
-          }))) {
-        this->IncrementSequenceNumber();
-      }
+      return Details::FunctionUpdateEval<Type>{}(m_value, m_function,
+        m_parameters);
     } catch(const std::exception&) {
       m_value = std::current_exception();
-      this->IncrementSequenceNumber();
+      return BaseReactor::Update::EVAL;
     }
   }
 }
