@@ -1,33 +1,33 @@
+#include <atomic>
 #include <cstdlib>
 #include <iostream>
 #include <random>
 #include <string>
-#include <boost/atomic.hpp>
 #include <boost/date_time.hpp>
-#include <Beam/Codecs/NullDecoder.hpp>
-#include <Beam/Codecs/NullEncoder.hpp>
-#include <Beam/IO/LocalClientChannel.hpp>
-#include <Beam/IO/LocalServerConnection.hpp>
-#include <Beam/IO/SharedBuffer.hpp>
-#include <Beam/Queries/BasicQuery.hpp>
-#include <Beam/Queries/LocalDataStore.hpp>
-#include <Beam/Queries/EvaluatorTranslator.hpp>
-#include <Beam/Queries/IndexedSubscriptions.hpp>
-#include <Beam/Queries/QueryClientPublisher.hpp>
-#include <Beam/Queries/QueryResult.hpp>
-#include <Beam/Queries/ShuttleQueryTypes.hpp>
-#include <Beam/Queries/StandardDataTypes.hpp>
-#include <Beam/Routines/RoutineHandlerGroup.hpp>
-#include <Beam/Serialization/BinaryReceiver.hpp>
-#include <Beam/Serialization/BinarySender.hpp>
-#include <Beam/Services/RecordMessage.hpp>
-#include <Beam/Services/Service.hpp>
-#include <Beam/Services/ServiceProtocolServletContainer.hpp>
-#include <Beam/Threading/LiveTimer.hpp>
-#include <Beam/Threading/TriggerTimer.hpp>
-#include <Beam/Threading/TimerThreadPool.hpp>
-#include <Beam/Utilities/ApplicationInterrupt.hpp>
-#include <Beam/Utilities/SynchronizedSet.hpp>
+#include "Beam/Codecs/NullDecoder.hpp"
+#include "Beam/Codecs/NullEncoder.hpp"
+#include "Beam/IO/LocalClientChannel.hpp"
+#include "Beam/IO/LocalServerConnection.hpp"
+#include "Beam/IO/SharedBuffer.hpp"
+#include "Beam/Queries/BasicQuery.hpp"
+#include "Beam/Queries/LocalDataStore.hpp"
+#include "Beam/Queries/EvaluatorTranslator.hpp"
+#include "Beam/Queries/IndexedSubscriptions.hpp"
+#include "Beam/Queries/QueryClientPublisher.hpp"
+#include "Beam/Queries/QueryResult.hpp"
+#include "Beam/Queries/ShuttleQueryTypes.hpp"
+#include "Beam/Queries/StandardDataTypes.hpp"
+#include "Beam/Routines/RoutineHandlerGroup.hpp"
+#include "Beam/Serialization/BinaryReceiver.hpp"
+#include "Beam/Serialization/BinarySender.hpp"
+#include "Beam/Services/RecordMessage.hpp"
+#include "Beam/Services/Service.hpp"
+#include "Beam/Services/ServiceProtocolServletContainer.hpp"
+#include "Beam/Threading/LiveTimer.hpp"
+#include "Beam/Threading/TriggerTimer.hpp"
+#include "Beam/Threading/TimerThreadPool.hpp"
+#include "Beam/Utilities/ApplicationInterrupt.hpp"
+#include "Beam/Utilities/SynchronizedSet.hpp"
 
 using namespace Beam;
 using namespace Beam::Codecs;
@@ -39,17 +39,16 @@ using namespace Beam::Services;
 using namespace Beam::Threading;
 using namespace boost;
 using namespace boost::posix_time;
-using namespace std;
 
 namespace {
   using ApplicationClientBuilder = ServiceProtocolClientBuilder<
-    MessageProtocol<unique_ptr<LocalClientChannel<SharedBuffer>>,
+    MessageProtocol<std::unique_ptr<LocalClientChannel<SharedBuffer>>,
     BinarySender<SharedBuffer>, NullEncoder>, TriggerTimer>;
   using ApplicationClientHandler =
     ServiceProtocolClientHandler<ApplicationClientBuilder>;
   using ServerClient = ServiceProtocolClient<
-    MessageProtocol<unique_ptr<LocalServerChannel<SharedBuffer>>,
-    BinarySender<SharedBuffer>, NullEncoder>, unique_ptr<TriggerTimer>>;
+    MessageProtocol<std::unique_ptr<LocalServerChannel<SharedBuffer>>,
+    BinarySender<SharedBuffer>, NullEncoder>, std::unique_ptr<TriggerTimer>>;
 
   struct Data {
     int m_value;
@@ -93,23 +92,23 @@ namespace {
 
     private:
       struct DataEntry {
-        unique_ptr<LiveTimer> m_timer;
+        std::unique_ptr<LiveTimer> m_timer;
         int m_index;
         Queries::Sequence m_sequence;
 
-        DataEntry(unique_ptr<LiveTimer> timer, int index)
-            : m_timer(std::move(timer)),
-              m_index(index),
-              m_sequence(Queries::Sequence::First()) {}
+        DataEntry(std::unique_ptr<LiveTimer> timer, int index)
+          : m_timer(std::move(timer)),
+            m_index(index),
+            m_sequence(Queries::Sequence::First()) {}
       };
       template<typename T>
       using Subscriptions = IndexedSubscriptions<T, int, ServiceProtocolClient>;
       Subscriptions<Data> m_dataSubscriptions;
       LocalDataStore<DataQuery, Data, EvaluatorTranslator<QueryTypes>>
         m_dataStore;
-      boost::atomic_bool m_timerState;
+      std::atomic_bool m_timerState;
       TimerThreadPool m_timerThreadPool;
-      vector<unique_ptr<DataEntry>> m_dataEntries;
+      std::vector<std::unique_ptr<DataEntry>> m_dataEntries;
       OpenState m_openState;
       RoutineTaskQueue m_taskQueue;
 
@@ -125,13 +124,13 @@ namespace {
     using Session = NullType;
     template<typename ContainerType>
     struct apply {
-      typedef DataServlet<ContainerType> type;
+      using type = DataServlet<ContainerType>;
     };
   };
 
   template<typename ContainerType>
   DataServlet<ContainerType>::DataServlet()
-      : m_timerState(true) {}
+    : m_timerState(true) {}
 
   template<typename ContainerType>
   void DataServlet<ContainerType>::RegisterServices(
@@ -158,13 +157,13 @@ namespace {
     if(m_openState.SetOpening()) {
       return;
     }
-    random_device rd;
-    default_random_engine randomizer{rd()};
-    std::uniform_int_distribution<std::uint64_t> distribution;
+    auto rd = std::random_device();
+    auto randomizer = std::default_random_engine(rd());
+    auto distribution = std::uniform_int_distribution<std::uint64_t>();
     for(auto i = 0; i < 200; ++i) {
       auto interval = milliseconds(10 * (rand() % 100));
-      auto entry = make_unique<DataEntry>(
-        make_unique<LiveTimer>(interval, Ref(m_timerThreadPool)), i);
+      auto entry = std::make_unique<DataEntry>(
+        std::make_unique<LiveTimer>(interval, Ref(m_timerThreadPool)), i);
       entry->m_timer->GetPublisher().Monitor(m_taskQueue.GetSlot<Timer::Result>(
         std::bind(&DataServlet::OnExpiry, this, std::placeholders::_1,
         std::ref(*entry))));
@@ -198,12 +197,12 @@ namespace {
       RequestToken<ServiceProtocolClient, QueryDataService>& request,
       const DataQuery& query) {
     auto filter = Translate<EvaluatorTranslator<QueryTypes>>(query.GetFilter());
-    DataQueryResult result;
+    auto result = DataQueryResult();
     result.m_queryId = m_dataSubscriptions.Initialize(query.GetIndex(),
       request.GetClient(), query.GetRange(), std::move(filter));
     result.m_snapshot = m_dataStore.Load(query);
     m_dataSubscriptions.Commit(query.GetIndex(), std::move(result),
-      [&] (const DataQueryResult& result) {
+      [&] (const auto& result) {
         request.SetResult(result);
       });
   }
@@ -217,15 +216,15 @@ namespace {
   template<typename ContainerType>
   void DataServlet<ContainerType>::OnExpiry(Timer::Result result,
       DataEntry& entry) {
-    Data data;
+    auto data = Data();
     data.m_value = entry.m_index;
     data.m_timestamp = microsec_clock::universal_time();
     entry.m_sequence = Increment(entry.m_sequence);
-    auto value = MakeSequencedValue(MakeIndexedValue(data, entry.m_index),
+    auto value = SequencedValue(IndexedValue(data, entry.m_index),
       entry.m_sequence);
     m_dataStore.Store(value);
     m_dataSubscriptions.Publish(value,
-      [&] (const vector<ServiceProtocolClient*>& clients) {
+      [&] (const auto& clients) {
         Beam::Services::BroadcastRecordMessage<DataQueryMessage>(
           clients, value);
       });
@@ -236,51 +235,50 @@ namespace {
 
   using DataServletContainer = ServiceProtocolServletContainer<MetaDataServlet,
     LocalServerConnection<SharedBuffer>*, BinarySender<SharedBuffer>,
-    NullEncoder, unique_ptr<TriggerTimer>>;
+    NullEncoder, std::unique_ptr<TriggerTimer>>;
 }
 
 int main() {
-  LocalServerConnection<SharedBuffer> server;
-  DataServletContainer servlet(Initialize(), &server,
+  auto server = LocalServerConnection<SharedBuffer>();
+  auto servlet = DataServletContainer(Initialize(), &server,
     [] {
-      return make_unique<TriggerTimer>();
+      return std::make_unique<TriggerTimer>();
     });
-  RoutineHandlerGroup routines;
-  TimerThreadPool timerThreadPool;
-  boost::atomic_int count{0};
+  auto routines = RoutineHandlerGroup();
+  auto timerThreadPool = TimerThreadPool();
+  auto count = std::atomic_int(0);
   routines.Spawn(
     [&] {
       while(!ReceivedKillEvent()) {
-        LiveTimer timer(seconds(10), Ref(timerThreadPool));
+        auto timer = LiveTimer(seconds(10), Ref(timerThreadPool));
         auto clients = rand() % 200;
         for(auto i = 0; i < clients; ++i) {
           routines.Spawn(
             [&] {
               ++count;
-              printf("Start: %d\n", count.load());
-              ApplicationClientHandler clientHandler{
+              std::cout << "Start: " << count << std::endl;
+              auto clientHandler = ApplicationClientHandler(
                 Initialize(
                 [&] {
-                  return make_unique<LocalClientChannel<SharedBuffer>>(
+                  return std::make_unique<LocalClientChannel<SharedBuffer>>(
                     "dummy", Ref(server));
                 },
                 [] {
-                  return make_unique<TriggerTimer>();
-                })};
+                  return std::make_unique<TriggerTimer>();
+                }));
               RegisterQueryTypes(Store(clientHandler.GetSlots().GetRegistry()));
               RegisterQueryServices(Store(clientHandler.GetSlots()));
               RegisterQueryMessages(Store(clientHandler.GetSlots()));
-              QueryClientPublisher<Data, DataQuery,
+              auto publisher = QueryClientPublisher<Data, DataQuery,
                 EvaluatorTranslator<QueryTypes>,
                 ServiceProtocolClientHandler<ApplicationClientBuilder>,
-                QueryDataService, EndDataQueryMessage> publisher(
-                Ref(clientHandler));
+                QueryDataService, EndDataQueryMessage>(Ref(clientHandler));
               publisher.AddMessageHandler<DataQueryMessage>();
               clientHandler.Open();
-              LiveTimer timer(milliseconds(100), Ref(timerThreadPool));
+              auto timer = LiveTimer(milliseconds(100), Ref(timerThreadPool));
               auto duration = 10 * (rand() % 20);
               for(auto i = 0; i < duration; ++i) {
-                DataQuery query;
+                auto query = DataQuery();
                 query.SetIndex(rand() % 200);
                 query.SetRange(Range::Total());
                 query.SetSnapshotLimit(SnapshotLimit::Type::TAIL, 1000);
@@ -290,7 +288,7 @@ int main() {
                 timer.Wait();
               }
               --count;
-              printf("Stop: %d\n", count.load());
+              std::cout << "Stop: " << count << std::endl;
               clientHandler.Close();
             });
         }
@@ -302,5 +300,5 @@ int main() {
   routines.Wait();
   servlet.Close();
   routines.Wait();
-  cout << "Done" << endl;
+  std::cout << "Done" << std::endl;
 }

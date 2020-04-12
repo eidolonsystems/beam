@@ -1,66 +1,50 @@
-#ifndef BEAM_PYTHONRATIONAL_HPP
-#define BEAM_PYTHONRATIONAL_HPP
-#include <boost/python.hpp>
+#ifndef BEAM_PYTHON_RATIONAL_HPP
+#define BEAM_PYTHON_RATIONAL_HPP
 #include <boost/rational.hpp>
-#include "Beam/Python/Python.hpp"
+#include <pybind11/pybind11.h>
+#include "Beam/Python/BasicTypeCaster.hpp"
 
-namespace Beam {
-namespace Python {
+namespace Beam::Python {
 namespace Details {
   inline auto PyFraction() {
-    static boost::python::object fraction =
-      boost::python::import("fractions").attr("Fraction");
+    static auto fraction = pybind11::module::import(
+      "fractions").attr("Fraction");
     return fraction;
   }
-
-  template<typename T>
-  struct RationalToPython {
-    static PyObject* convert(const T& value) {
-      auto result = PyFraction()(value.numerator(), value.denominator());
-      return boost::python::incref(result.ptr());
-    }
-  };
-
-  template<typename T>
-  struct RationalFromPythonConverter {
-    static void* convertible(PyObject* object) {
-      if(PyObject_IsInstance(object, PyFraction().ptr())) {
-        return object;
-      }
-      return nullptr;
-    }
-
-    static void construct(PyObject* object,
-        boost::python::converter::rvalue_from_python_stage1_data* data) {
-      auto storage = reinterpret_cast<boost::python::converter::
-        rvalue_from_python_storage<T>*>(data)->storage.bytes;
-      boost::python::handle<> handle{object};
-      boost::python::object fraction{handle};
-      new(storage) T{static_cast<typename T::int_type>(
-        boost::python::extract<typename T::int_type>(
-        fraction.attr("numerator"))), static_cast<typename T::int_type>(
-        boost::python::extract<typename T::int_type>(
-        fraction.attr("denominator")))};
-      data->convertible = storage;
-    }
-  };
 }
 
-  //! Exports a rational.
   template<typename T>
-  void ExportRational() {
-    auto typeId = boost::python::type_id<T>();
-    auto registration = boost::python::converter::registry::query(typeId);
-    if(registration != nullptr && registration->m_to_python != nullptr) {
-      return;
+  struct RationalTypeCaster : BasicTypeCaster<T> {
+    using Type = T;
+    static constexpr auto name = pybind11::detail::_("Rational");
+    static pybind11::handle cast(const Type& value,
+      pybind11::return_value_policy policy, pybind11::handle parent);
+    bool load(pybind11::handle source, bool);
+    using BasicTypeCaster<T>::m_value;
+  };
+
+  template<typename T>
+  pybind11::handle RationalTypeCaster<T>::cast(const Type& value,
+      pybind11::return_value_policy policy, pybind11::handle parent) {
+    return Details::PyFraction()(value.numerator(),
+      value.denominator()).release();
+  }
+
+  template<typename T>
+  bool RationalTypeCaster<T>::load(pybind11::handle source, bool) {
+    if(!PyObject_IsInstance(source.ptr(), Details::PyFraction().ptr())) {
+      return false;
     }
-    boost::python::to_python_converter<T, Details::RationalToPython<T>>();
-    boost::python::converter::registry::push_back(
-      &Details::RationalFromPythonConverter<T>::convertible,
-      &Details::RationalFromPythonConverter<T>::construct,
-      boost::python::type_id<T>());
+    m_value.emplace(source.attr("numerator").cast<typename Type::int_type>(),
+      source.attr("denominator").cast<typename Type::int_type>());
+    return true;
   }
 }
+
+namespace pybind11::detail {
+  template<typename T>
+  struct type_caster<boost::rational<T>> : Beam::Python::RationalTypeCaster<
+    boost::rational<T>> {};
 }
 
 #endif

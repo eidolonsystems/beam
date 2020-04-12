@@ -88,6 +88,10 @@ namespace Queries {
       Sequence m_sequence;
   };
 
+  template<typename V>
+  SequencedValue(V&& value, const Sequence& sequence) ->
+    SequencedValue<std::decay_t<V>>;
+
   /*! \struct SequenceComparator
       \brief Defines a comparator for any two SequencedValues.
    */
@@ -96,20 +100,6 @@ namespace Queries {
     bool operator()(const SequencedValue<T>& lhs,
       const SequencedValue<Q>& rhs) const;
   };
-
-  //! Makes a SequencedValue.
-  /*!
-    \param value The value to store.
-    \param sequence The value's Sequence.
-    \return A SequencedValue storing the <i>value</i> and with the given
-            <i>sequence</i>.
-  */
-  template<typename T>
-  SequencedValue<typename std::decay<T>::type> MakeSequencedValue(T&& value,
-      const Sequence& sequence) {
-    return SequencedValue<typename std::decay<T>::type>(std::forward<T>(value),
-      sequence);
-  }
 
   template<typename T>
   struct TimestampAccessor<SequencedValue<T>> {
@@ -126,20 +116,20 @@ namespace Queries {
 
   template<typename T>
   SequencedValue<T>::SequencedValue()
-      : m_value() {}
+    : m_value() {}
 
   template<typename T>
   template<typename U>
   SequencedValue<T>::SequencedValue(const SequencedValue<U>& value)
-      : m_value(value.GetValue()),
-        m_sequence(value.GetSequence()) {}
+    : m_value(value.GetValue()),
+      m_sequence(value.GetSequence()) {}
 
   template<typename T>
   template<typename ValueForward>
   SequencedValue<T>::SequencedValue(ValueForward&& value,
       const Sequence& sequence)
-      : m_value(std::forward<ValueForward>(value)),
-        m_sequence(sequence) {}
+    : m_value(std::forward<ValueForward>(value)),
+      m_sequence(sequence) {}
 
   template<typename T>
   const typename SequencedValue<T>::Value& SequencedValue<T>::GetValue() const {

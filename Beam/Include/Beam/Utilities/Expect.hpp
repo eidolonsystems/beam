@@ -29,6 +29,12 @@ namespace Beam {
       */
       Expect(const T& value);
 
+      //! Constructs an Expect with a normal value.
+      /*!
+        \param value The value to store.
+      */
+      Expect(T&& value);
+
       //! Constructs an Expect with an exception.
       /*!
         \param exception The exception to throw.
@@ -46,6 +52,9 @@ namespace Beam {
 
       //! Returns the stored value, or throws an exception.
       const T& Get() const;
+
+      //! Returns the stored value, or throws an exception.
+      T& Get();
 
       //! Returns the exception.
       std::exception_ptr GetException() const;
@@ -122,16 +131,46 @@ namespace Beam {
   template<typename F>
   Expect<typename std::decay<GetResultOf<typename std::decay<F>::type>>::type>
       Try(F&& f) {
+    using Result = typename std::decay<
+      GetResultOf<typename std::decay<F>::type>>::type;
     try {
-      return f();
+      if constexpr(std::is_same_v<Result, void>) {
+        f();
+        return {};
+      } else {
+        return f();
+      }
     } catch(...) {
       return std::current_exception();
     }
-  };
+  }
+
+  //! Calls a function and calls terminate if the function throws an exception.
+  /*!
+    \param f The function to call.
+    \param args The arguments to pass to f.
+    \return The result of f.
+  */
+  template<typename F, typename... Args>
+  auto Require(F&& f, Args&&... args) noexcept {
+    try {
+      return f(std::forward<Args>(args)...);
+    } catch(const std::exception& e) {
+      std::cerr << e.what();
+    } catch(...) {
+      std::cerr << "Unknown error.";
+    }
+    std::exit(-1);
+    return f(std::forward<Args>(args)...);
+  }
 
   template<typename T>
   Expect<T>::Expect(const T& value)
       : m_value(value) {}
+
+  template<typename T>
+  Expect<T>::Expect(T&& value)
+      : m_value(std::move(value)) {}
 
   template<typename T>
   Expect<T>::Expect(const std::exception_ptr& exception)
@@ -154,6 +193,15 @@ namespace Beam {
 
   template<typename T>
   const typename Expect<T>::Type& Expect<T>::Get() const {
+    if(IsValue()) {
+      return boost::get<Type>(m_value);
+    }
+    std::rethrow_exception(boost::get<std::exception_ptr>(m_value));
+    throw std::exception();
+  }
+
+  template<typename T>
+  typename Expect<T>::Type& Expect<T>::Get() {
     if(IsValue()) {
       return boost::get<Type>(m_value);
     }

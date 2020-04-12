@@ -14,9 +14,10 @@
 #include "Beam/Services/ServiceProtocolServletContainer.hpp"
 #include "Beam/Threading/LiveTimer.hpp"
 #include "Beam/Utilities/ApplicationInterrupt.hpp"
+#include "Beam/Utilities/Expect.hpp"
 #include "Beam/Utilities/YamlConfig.hpp"
 #include "ServletTemplate/Servlet.hpp"
-#include "ServletTemplate/Version.hpp"
+#include "Version.hpp"
 
 using namespace Beam;
 using namespace Beam::Codecs;
@@ -58,8 +59,8 @@ namespace {
 int main(int argc, const char** argv) {
   string configFile;
   try {
-    CmdLine cmd{"", ' ', "1.0-r" SERVLET_TEMPLATE_VERSION
-      "\nCopyright (C) 2009 Eidolon Systems Ltd."};
+    CmdLine cmd("", ' ', "1.0-r" SERVLET_TEMPLATE_VERSION
+      "\nCopyright (C) 2020 Spire Trading Inc.");
     ValueArg<string> configArg{"c", "config", "Configuration file", false,
       "config.yml", "path"};
     cmd.add(configArg);
@@ -69,20 +70,7 @@ int main(int argc, const char** argv) {
     cerr << "error: " << e.error() << " for arg " << e.argId() << endl;
     return -1;
   }
-  YAML::Node config;
-  try {
-    ifstream configStream{configFile.c_str()};
-    if(!configStream.good()) {
-      cerr << configFile << " not found." << endl;
-      return -1;
-    }
-    YAML::Parser configParser{configStream};
-    configParser.GetNextDocument(config);
-  } catch(const YAML::ParserException& e) {
-    cerr << "Invalid YAML at line " << (e.mark.line + 1) << ", " << "column " <<
-      (e.mark.column + 1) << ": " << e.msg << endl;
-    return -1;
-  }
+  auto config = Require(LoadFile, configFile);
   ServerConnectionInitializer serverConnectionInitializer;
   try {
     serverConnectionInitializer.Initialize(GetNode(config, "server"));

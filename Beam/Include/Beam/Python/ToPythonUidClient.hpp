@@ -1,106 +1,75 @@
 #ifndef BEAM_TO_PYTHON_UID_CLIENT_HPP
 #define BEAM_TO_PYTHON_UID_CLIENT_HPP
-#include "Beam/IO/OpenState.hpp"
 #include "Beam/Python/GilRelease.hpp"
-#include "Beam/UidService/UidService.hpp"
 #include "Beam/UidService/VirtualUidClient.hpp"
 
-namespace Beam {
-namespace UidService {
+namespace Beam::UidService {
 
-  /*! \class ToPythonUidClient
-      \brief Wraps a UidClient for use with Python.
-      \tparam ClientType The type of UidClient to wrap.
+  /** Wraps a UidClient for use with Python.
+   * @param C The type of UidClient to wrap.
    */
-  template<typename ClientType>
-  class ToPythonUidClient : public VirtualUidClient {
+  template<typename C>
+  class ToPythonUidClient final : public VirtualUidClient {
     public:
 
-      //! The type of UidClient to wrap.
-      using Client = ClientType;
+      /** The type of UidClient to wrap. */
+      using Client = C;
 
-      //! Constructs a ToPythonUidClient.
-      /*!
-        \param client The UidClient to wrap.
-      */
+      /**
+       * Constructs a ToPythonUidClient.
+       * @param client The UidClient to wrap.
+       */
       ToPythonUidClient(std::unique_ptr<Client> client);
 
-      virtual ~ToPythonUidClient() override final;
+      ~ToPythonUidClient() override;
 
-      virtual std::uint64_t LoadNextUid() override final;
+      std::uint64_t LoadNextUid() override;
 
-      virtual void Open() override final;
+      void Open() override;
 
-      virtual void Close() override final;
+      void Close() override;
 
     private:
       std::unique_ptr<Client> m_client;
-      IO::OpenState m_openState;
-
-      void Shutdown();
   };
 
-  //! Makes a ToPythonUidClient.
-  /*!
-    \param client The UidClient to wrap.
-  */
+  /**
+   * Makes a ToPythonUidClient.
+   * @param client The UidClient to wrap.
+   */
   template<typename Client>
   auto MakeToPythonUidClient(std::unique_ptr<Client> client) {
     return std::make_unique<ToPythonUidClient<Client>>(std::move(client));
   }
 
-  template<typename ClientType>
-  ToPythonUidClient<ClientType>::ToPythonUidClient(
-      std::unique_ptr<Client> client)
-      : m_client{std::move(client)} {}
+  template<typename C>
+  ToPythonUidClient<C>::ToPythonUidClient(std::unique_ptr<Client> client)
+    : m_client(std::move(client)) {}
 
-  template<typename ClientType>
-  ToPythonUidClient<ClientType>::~ToPythonUidClient() {
-    Python::GilRelease gil;
-    boost::lock_guard<Python::GilRelease> lock{gil};
+  template<typename C>
+  ToPythonUidClient<C>::~ToPythonUidClient() {
     Close();
+    auto release = Python::GilRelease();
     m_client.reset();
   }
 
-  template<typename ClientType>
-  std::uint64_t ToPythonUidClient<ClientType>::LoadNextUid() {
-    Python::GilRelease gil;
-    boost::lock_guard<Python::GilRelease> lock{gil};
+  template<typename C>
+  std::uint64_t ToPythonUidClient<C>::LoadNextUid() {
+    auto release = Python::GilRelease();
     return m_client->LoadNextUid();
   }
 
-  template<typename ClientType>
-  void ToPythonUidClient<ClientType>::Open() {
-    Python::GilRelease gil;
-    boost::lock_guard<Python::GilRelease> lock{gil};
-    if(m_openState.SetOpening()) {
-      return;
-    }
-    try {
-      m_client->Open();
-    } catch(const std::exception&) {
-      m_openState.SetOpenFailure();
-      Shutdown();
-    }
-    m_openState.SetOpen();
+  template<typename C>
+  void ToPythonUidClient<C>::Open() {
+    auto release = Python::GilRelease();
+    m_client->Open();
   }
 
-  template<typename ClientType>
-  void ToPythonUidClient<ClientType>::Close() {
-    Python::GilRelease gil;
-    boost::lock_guard<Python::GilRelease> lock{gil};
-    if(m_openState.SetClosing()) {
-      return;
-    }
-    Shutdown();
-  }
-
-  template<typename ClientType>
-  void ToPythonUidClient<ClientType>::Shutdown() {
+  template<typename C>
+  void ToPythonUidClient<C>::Close() {
+    auto release = Python::GilRelease();
     m_client->Close();
-    m_openState.SetClosed();
   }
-}
 }
 
 #endif

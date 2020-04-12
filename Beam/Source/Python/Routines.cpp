@@ -1,6 +1,9 @@
 #include "Beam/Python/Routines.hpp"
-#include "Beam/Python/BoostPython.hpp"
-#include "Beam/Python/Exception.hpp"
+#include <pybind11/stl.h>
+#include <pybind11/functional.h>
+#include "Beam/Python/GilRelease.hpp"
+#include "Beam/Python/SharedObject.hpp"
+#include "Beam/Routines/Routine.hpp"
 #include "Beam/Routines/RoutineException.hpp"
 #include "Beam/Routines/RoutineHandler.hpp"
 #include "Beam/Routines/RoutineHandlerGroup.hpp"
@@ -8,83 +11,72 @@
 using namespace Beam;
 using namespace Beam::Python;
 using namespace Beam::Routines;
-using namespace boost;
-using namespace boost::python;
-using namespace std;
+using namespace pybind11;
 
-namespace {
-  void RoutineHandlerGroupAddRoutineHandler(RoutineHandlerGroup& routines,
-      RoutineHandler* handler) {
-    routines.Add(std::move(*handler));
-  }
-
-  void DeleteRoutineHandler(RoutineHandler& routine) {
-    routine.Wait();
-  }
-
-  void DeleteRoutineHandlerGroup(RoutineHandlerGroup& routines) {
-    routines.Wait();
-  }
+void Beam::Python::ExportBaseAsync(pybind11::module& module) {
+  auto outer = class_<BaseAsync>(module, "BaseAsync");
+  enum_<BaseAsync::State>(outer, "State")
+    .value("PENDING", BaseAsync::State::PENDING)
+    .value("COMPLETE", BaseAsync::State::COMPLETE)
+    .value("EXCEPTION", BaseAsync::State::EXCEPTION);
 }
 
-BEAM_DEFINE_PYTHON_POINTER_LINKER(Eval<object>);
-
-void Beam::Python::ExportBaseAsync() {
-  {
-    scope outer = class_<BaseAsync, noncopyable>("BaseAsync", no_init);
-    enum_<BaseAsync::State>("State")
-      .value("PENDING", BaseAsync::State::PENDING)
-      .value("COMPLETE", BaseAsync::State::COMPLETE)
-      .value("EXCEPTION", BaseAsync::State::EXCEPTION);
-  }
+void Beam::Python::ExportBaseEval(pybind11::module& module) {
+  class_<BaseEval>(module, "BaseEval");
 }
 
-void Beam::Python::ExportBaseEval() {
-  class_<BaseEval, noncopyable>("BaseEval", no_init);
-}
-
-void Beam::Python::ExportPythonAsync() {
-  ExportAsync<object>("Async");
-}
-
-void Beam::Python::ExportPythonEval() {
-  ExportEval<object>("Eval");
-}
-
-void Beam::Python::ExportRoutineHandler() {
-  class_<RoutineHandler, noncopyable>("RoutineHandler", init<>())
+void Beam::Python::ExportRoutineHandler(pybind11::module& module) {
+  class_<RoutineHandler>(module, "RoutineHandler")
+    .def(init())
     .def(init<Routine::Id>())
-    .def("__del__", BlockingFunction(&DeleteRoutineHandler))
+    .def("__del__",
+      [] (RoutineHandler& self) {
+        self.Wait();
+      }, call_guard<GilRelease>())
     .def("detach", &RoutineHandler::Detach)
-    .def("wait", BlockingFunction(&RoutineHandler::Wait));
-  def("flush_pending_routines", BlockingFunction(&FlushPendingRoutines));
+    .def("wait", &RoutineHandler::Wait, call_guard<GilRelease>());
+  module.def("flush_pending_routines", &FlushPendingRoutines,
+    call_guard<GilRelease>());
 }
 
-void Beam::Python::ExportRoutineHandlerGroup() {
-  class_<RoutineHandlerGroup, noncopyable>("RoutineHandlerGroup", init<>())
-    .def("__del__", BlockingFunction(&DeleteRoutineHandlerGroup))
+void Beam::Python::ExportRoutineHandlerGroup(pybind11::module& module) {
+  class_<RoutineHandlerGroup>(module, "RoutineHandlerGroup")
+    .def(init())
+    .def("__del__",
+      [] (RoutineHandlerGroup& self) {
+        self.Wait();
+      }, call_guard<GilRelease>())
     .def("add", static_cast<void (RoutineHandlerGroup::*)(Routine::Id)>(
       &RoutineHandlerGroup::Add))
-    .def("add", &RoutineHandlerGroupAddRoutineHandler)
-    .def("spawn", &RoutineHandlerGroup::Spawn<const std::function<void ()>&>)
-    .def("wait", BlockingFunction(&RoutineHandlerGroup::Wait));
+    .def("add",
+      [] (RoutineHandlerGroup& self, RoutineHandler* handler) {
+        self.Add(std::move(*handler));
+      })
+    .def("spawn",
+      [] (RoutineHandlerGroup& self, const std::function<void ()>& callable) {
+        return self.Spawn(
+          [callable = SharedObject(cast(callable))] {
+            callable->cast<std::function<void ()>>()();
+          });
+      })
+    .def("wait", &RoutineHandlerGroup::Wait, call_guard<GilRelease>());
 }
 
-void Beam::Python::ExportRoutines() {
-  string nestedName = extract<string>(scope().attr("__name__") + ".routines");
-  object nestedModule{handle<>(
-    borrowed(PyImport_AddModule(nestedName.c_str())))};
-  scope().attr("routines") = nestedModule;
-  scope parent = nestedModule;
-  ExportBaseAsync();
-  ExportBaseEval();
-  ExportPythonEval();
-  ExportPythonAsync();
-  ExportRoutineHandler();
-  ExportRoutineHandlerGroup();
-  ExportException<RoutineException, std::runtime_error>("RoutineException")
-    .def(init<const string&>());
-  def("spawn", static_cast<Routine::Id (*)(const std::function<void ()>&)>(
-    &Spawn));
-  def("wait", BlockingFunction(&Wait));
+void Beam::Python::ExportRoutines(pybind11::module& module) {
+  auto submodule = module.def_submodule("routines");
+  ExportBaseAsync(submodule);
+  ExportBaseEval(submodule);
+  ExportRoutineHandler(submodule);
+  ExportRoutineHandlerGroup(submodule);
+  ExportAsync<object>(submodule, "");
+  ExportEval<object>(submodule, "");
+  submodule.def("spawn",
+    [] (const std::function<void ()>& callable) {
+      return Spawn(
+        [callable = SharedObject(cast(callable))] {
+          callable->cast<std::function<void ()>>()();
+        });
+    });
+  submodule.def("wait", &Wait, call_guard<GilRelease>());
+  register_exception<RoutineException>(submodule, "RoutineException");
 }

@@ -1,124 +1,93 @@
 #ifndef BEAM_TO_PYTHON_TIME_CLIENT_HPP
 #define BEAM_TO_PYTHON_TIME_CLIENT_HPP
-#include "Beam/IO/OpenState.hpp"
 #include "Beam/Python/GilRelease.hpp"
-#include "Beam/TimeService/TimeService.hpp"
 #include "Beam/TimeService/VirtualTimeClient.hpp"
 
-namespace Beam {
-namespace TimeService {
+namespace Beam::TimeService {
 
-  /*! \class ToPythonTimeClient
-      \brief Wraps a TimeClient for use with Python.
-      \tparam ClientType The type of TimeClient to wrap.
+  /**
+   * Wraps a TimeClient for use with Python.
+   * @param <C> The type of TimeClient to wrap.
    */
-  template<typename ClientType>
-  class ToPythonTimeClient : public VirtualTimeClient {
+  template<typename C>
+  class ToPythonTimeClient final : public VirtualTimeClient {
     public:
 
-      //! The type of TimeClient to wrap.
-      using Client = ClientType;
+      /** The type of TimeClient to wrap. */
+      using Client = C;
 
-      //! Constructs a ToPythonTimeClient.
-      /*!
-        \param client The TimeClient to wrap.
-      */
+      /**
+       * Constructs a ToPythonTimeClient.
+       * @param client The TimeClient to wrap.
+       */
       ToPythonTimeClient(std::unique_ptr<Client> client);
 
-      virtual ~ToPythonTimeClient() override final;
+      ~ToPythonTimeClient() override;
 
-      //! Returns the TimeClient being wrapped.
+      /** Returns the TimeClient being wrapped. */
       const Client& GetClient() const;
 
-      //! Returns the TimeClient being wrapped.
+      /** Returns the TimeClient being wrapped. */
       Client& GetClient();
 
-      virtual boost::posix_time::ptime GetTime() override final;
+      boost::posix_time::ptime GetTime() override;
 
-      virtual void Open() override final;
+      void Open() override;
 
-      virtual void Close() override final;
+      void Close() override;
 
     private:
       std::unique_ptr<Client> m_client;
-      IO::OpenState m_openState;
-
-      void Shutdown();
   };
 
-  //! Makes a ToPythonTimeClient.
-  /*!
-    \param client The TimeClient to wrap.
-  */
+  /**
+   * Makes a ToPythonTimeClient.
+   * @param client The TimeClient to wrap.
+   */
   template<typename Client>
   auto MakeToPythonTimeClient(std::unique_ptr<Client> client) {
     return std::make_unique<ToPythonTimeClient<Client>>(std::move(client));
   }
 
-  template<typename ClientType>
-  ToPythonTimeClient<ClientType>::ToPythonTimeClient(
-      std::unique_ptr<Client> client)
-      : m_client{std::move(client)} {}
+  template<typename C>
+  ToPythonTimeClient<C>::ToPythonTimeClient(std::unique_ptr<Client> client)
+    : m_client(std::move(client)) {}
 
-  template<typename ClientType>
-  ToPythonTimeClient<ClientType>::~ToPythonTimeClient() {
-    Python::GilRelease gil;
-    boost::lock_guard<Python::GilRelease> lock{gil};
+  template<typename C>
+  ToPythonTimeClient<C>::~ToPythonTimeClient() {
     Close();
+    auto release = Python::GilRelease();
     m_client.reset();
   }
 
-  template<typename ClientType>
-  const typename ToPythonTimeClient<ClientType>::Client&
-      ToPythonTimeClient<ClientType>::GetClient() const {
+  template<typename C>
+  const typename ToPythonTimeClient<C>::Client&
+      ToPythonTimeClient<C>::GetClient() const {
     return *m_client;
   }
 
-  template<typename ClientType>
-  typename ToPythonTimeClient<ClientType>::Client&
-      ToPythonTimeClient<ClientType>::GetClient() {
+  template<typename C>
+  typename ToPythonTimeClient<C>::Client& ToPythonTimeClient<C>::GetClient() {
     return *m_client;
   }
 
-  template<typename ClientType>
-  boost::posix_time::ptime ToPythonTimeClient<ClientType>::GetTime() {
-    Python::GilRelease gil;
-    boost::lock_guard<Python::GilRelease> lock{gil};
+  template<typename C>
+  boost::posix_time::ptime ToPythonTimeClient<C>::GetTime() {
+    auto release = Python::GilRelease();
     return m_client->GetTime();
   }
 
-  template<typename ClientType>
-  void ToPythonTimeClient<ClientType>::Open() {
-    Python::GilRelease gil;
-    boost::lock_guard<Python::GilRelease> lock{gil};
-    if(m_openState.SetOpening()) {
-      return;
-    }
-    try {
-      m_client->Open();
-    } catch(const std::exception&) {
-      m_openState.SetOpenFailure();
-      Shutdown();
-    }
-    m_openState.SetOpen();
+  template<typename C>
+  void ToPythonTimeClient<C>::Open() {
+    auto release = Python::GilRelease();
+    m_client->Open();
   }
 
-  template<typename ClientType>
-  void ToPythonTimeClient<ClientType>::Close() {
-    Python::GilRelease gil;
-    boost::lock_guard<Python::GilRelease> lock{gil};
-    if(m_openState.SetClosing()) {
-      return;
-    }
-    Shutdown();
-  }
-
-  template<typename ClientType>
-  void ToPythonTimeClient<ClientType>::Shutdown() {
+  template<typename C>
+  void ToPythonTimeClient<C>::Close() {
+    auto release = Python::GilRelease();
     m_client->Close();
-    m_openState.SetClosed();
   }
-}
 }
 
 #endif

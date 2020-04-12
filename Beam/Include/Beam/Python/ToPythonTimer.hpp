@@ -1,110 +1,103 @@
 #ifndef BEAM_TO_PYTHON_TIMER_HPP
 #define BEAM_TO_PYTHON_TIMER_HPP
 #include "Beam/Python/GilRelease.hpp"
-#include "Beam/Threading/Threading.hpp"
+#include "Beam/Queues/Publisher.hpp"
 #include "Beam/Threading/VirtualTimer.hpp"
 
-namespace Beam {
-namespace Threading {
+namespace Beam::Threading {
 
-  /*! \class ToPythonTimer
-      \brief Wraps a Timer class for use within Python.
-      \tparam TimerType The type of Timer to wrap.
+  /**
+   * Wraps a Timer class for use within Python.
+   * @param <T> The type of Timer to wrap.
    */
-  template<typename TimerType>
-  class ToPythonTimer : public VirtualTimer {
+  template<typename T>
+  class ToPythonTimer final : public VirtualTimer {
     public:
 
-      //! The type of Timer to wrap.
-      using Timer = TimerType;
+      /** The type of Timer to wrap. */
+      using Timer = T;
 
-      //! Constructs a ToPythonTimer.
-      /*!
-        \param timer The Timer to wrap.
-      */
+      /**
+       * Constructs a ToPythonTimer.
+       * @param timer The Timer to wrap.
+       */
       ToPythonTimer(std::unique_ptr<Timer> timer);
 
-      virtual ~ToPythonTimer() override final;
+      ~ToPythonTimer() override;
 
-      //! Returns the wrapped Timer.
+      /** Returns the wrapped Timer. */
       const Timer& GetTimer() const;
 
-      //! Returns the wrapped Timer.
+      /** Returns the wrapped Timer. */
       Timer& GetTimer();
 
-      virtual void Start() override final;
+      void Start() override;
 
-      virtual void Cancel() override final;
+      void Cancel() override;
 
-      virtual void Wait() override final;
+      void Wait() override;
 
-      virtual const Publisher<Threading::Timer::Result>&
-        GetPublisher() const override final;
+      const Publisher<Threading::Timer::Result>& GetPublisher() const override;
 
     private:
       std::unique_ptr<Timer> m_timer;
   };
 
-  //! Makes a ToPythonTimer.
-  /*!
-    \param timer The Timer to wrap.
-  */
+  /**
+   * Makes a ToPythonTimer.
+   * @param timer The Timer to wrap.
+   */
   template<typename Timer>
   auto MakeToPythonTimer(std::unique_ptr<Timer> timer) {
-    return std::make_shared<ToPythonTimer<Timer>>(std::move(timer));
+    return std::make_unique<ToPythonTimer<Timer>>(std::move(timer));
   }
 
-  template<typename TimerType>
-  ToPythonTimer<TimerType>::ToPythonTimer(std::unique_ptr<Timer> timer)
-      : m_timer{std::move(timer)} {}
+  template<typename T>
+  ToPythonTimer<T>::ToPythonTimer(std::unique_ptr<Timer> timer)
+    : m_timer(std::move(timer)) {}
 
-  template<typename TimerType>
-  ToPythonTimer<TimerType>::~ToPythonTimer() {
-    Python::GilRelease gil;
-    boost::lock_guard<Python::GilRelease> lock{gil};
+  template<typename T>
+  ToPythonTimer<T>::~ToPythonTimer() {
     m_timer->Cancel();
+    auto release = Python::GilRelease();
     m_timer.reset();
   }
 
-  template<typename TimerType>
-  const typename ToPythonTimer<TimerType>::Timer&
-      ToPythonTimer<TimerType>::GetTimer() const {
+  template<typename T>
+  const typename ToPythonTimer<T>::Timer&
+      ToPythonTimer<T>::GetTimer() const {
     return *m_timer;
   }
 
-  template<typename TimerType>
-  typename ToPythonTimer<TimerType>::Timer&
-      ToPythonTimer<TimerType>::GetTimer() {
+  template<typename T>
+  typename ToPythonTimer<T>::Timer&
+      ToPythonTimer<T>::GetTimer() {
     return *m_timer;
   }
 
-  template<typename TimerType>
-  void ToPythonTimer<TimerType>::Start() {
-    Python::GilRelease gil;
-    boost::lock_guard<Python::GilRelease> lock{gil};
+  template<typename T>
+  void ToPythonTimer<T>::Start() {
+    auto release = Python::GilRelease();
     m_timer->Start();
   }
 
-  template<typename TimerType>
-  void ToPythonTimer<TimerType>::Cancel() {
-    Python::GilRelease gil;
-    boost::lock_guard<Python::GilRelease> lock{gil};
+  template<typename T>
+  void ToPythonTimer<T>::Cancel() {
+    auto release = Python::GilRelease();
     m_timer->Cancel();
   }
 
-  template<typename TimerType>
-  void ToPythonTimer<TimerType>::Wait() {
-    Python::GilRelease gil;
-    boost::lock_guard<Python::GilRelease> lock{gil};
+  template<typename T>
+  void ToPythonTimer<T>::Wait() {
+    auto release = Python::GilRelease();
     m_timer->Wait();
   }
 
-  template<typename TimerType>
+  template<typename T>
   const Publisher<Threading::Timer::Result>&
-      ToPythonTimer<TimerType>::GetPublisher() const {
+      ToPythonTimer<T>::GetPublisher() const {
     return m_timer->GetPublisher();
   }
-}
 }
 
 #endif

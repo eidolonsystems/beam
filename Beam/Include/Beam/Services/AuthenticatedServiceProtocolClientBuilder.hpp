@@ -1,7 +1,6 @@
 #ifndef BEAM_AUTHENTICATEDSERVICEPROTOCOLCLIENTBUILDER_HPP
 #define BEAM_AUTHENTICATEDSERVICEPROTOCOLCLIENTBUILDER_HPP
 #include <functional>
-#include "Beam/Pointers/DelayPtr.hpp"
 #include "Beam/Pointers/Dereference.hpp"
 #include "Beam/Pointers/NativePointerPolicy.hpp"
 #include "Beam/Pointers/Out.hpp"
@@ -59,7 +58,7 @@ namespace Services {
         \param channelBuilder Used to build new Channels.
         \param timerBuilder Used to build heartbeat Timers.
       */
-      AuthenticatedServiceProtocolClientBuilder(RefType<ServiceLocatorClient>
+      AuthenticatedServiceProtocolClientBuilder(Ref<ServiceLocatorClient>
         serviceLocatorClient, const ChannelBuilder& channelBuilder,
         const TimerBuilder& timerBuilder);
 
@@ -78,7 +77,7 @@ namespace Services {
   AuthenticatedServiceProtocolClientBuilder<ServiceLocatorClientType,
       MessageProtocolType, TimerType>::
       AuthenticatedServiceProtocolClientBuilder(
-      RefType<ServiceLocatorClient> serviceLocatorClient,
+      Ref<ServiceLocatorClient> serviceLocatorClient,
       const ChannelBuilder& channelBuilder, const TimerBuilder& timerBuilder)
       : m_serviceLocatorClient(serviceLocatorClient.Get()),
         m_channelBuilder(channelBuilder),

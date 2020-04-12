@@ -1,5 +1,6 @@
 #ifndef BEAM_RULEPARSER_HPP
 #define BEAM_RULEPARSER_HPP
+#include <type_traits>
 #include "Beam/Parsers/Operators.hpp"
 #include "Beam/Parsers/Parser.hpp"
 #include "Beam/Parsers/Parsers.hpp"
@@ -21,6 +22,9 @@ namespace Parsers {
 
       //! Constructs a RuleParser.
       RuleParser();
+
+      //! Copies a RuleParser.
+      RuleParser(const RuleParser&) = default;
 
       //! Provides the definition of this parser.
       /*!
@@ -54,6 +58,13 @@ namespace Parsers {
 
       template<typename ParserStreamType>
       bool Read(ParserStreamType& source);
+
+    protected:
+
+      //! Constructs a RuleParser.
+      template<typename Parser, typename = std::enable_if_t<
+        !std::is_base_of_v<RuleParser, std::decay_t<Parser>>>>
+      RuleParser(Parser&& parser);
 
     private:
       std::shared_ptr<std::unique_ptr<VirtualParser<Result>>> m_source;
@@ -105,6 +116,14 @@ namespace Parsers {
   bool RuleParser<ResultType>::Read(ParserStreamType& source) {
     WrapperParserStream<ParserStreamType> context(source);
     return (*m_source)->Read(context);
+  }
+
+  template<typename ResultType>
+  template<typename Parser, typename>
+  RuleParser<ResultType>::RuleParser(Parser&& parser)
+      : RuleParser() {
+    *m_source = std::make_unique<WrapperParser<Parser>>(
+      std::forward<Parser>(parser));
   }
 }
 }

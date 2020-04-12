@@ -1,7 +1,8 @@
-#ifndef BEAM_DATASTOREPROFILER_BUFFEREDDATASTORE_HPP
-#define BEAM_DATASTOREPROFILER_BUFFEREDDATASTORE_HPP
+#ifndef BEAM_DATA_STORE_PROFILER_BUFFERED_DATA_STORE_HPP
+#define BEAM_DATA_STORE_PROFILER_BUFFERED_DATA_STORE_HPP
 #include <Beam/IO/OpenState.hpp>
 #include <Beam/Pointers/Dereference.hpp>
+#include <Beam/Pointers/Ref.hpp>
 #include <Beam/Queries/BufferedDataStore.hpp>
 #include <Beam/Queries/EvaluatorTranslator.hpp>
 #include <boost/noncopyable.hpp>
@@ -10,8 +11,7 @@
 
 namespace Beam {
 
-  /*! \class BufferedDataStore
-      \brief Buffers writes to an underlying data store.
+  /** Buffers writes to an underlying data store.
       \tparam BaseDataStoreType The underlying data store to commit the data to.
    */
   template<typename BaseDataStoreType>
@@ -26,11 +26,10 @@ namespace Beam {
         \param dataStore Initializes the data store to commit data to.
         \param bufferSize The number of messages to buffer before committing to
                to the <i>dataStore</i>.
-        \param threadPool The ThreadPool to queue the writes to.
       */
       template<typename BaseDataStoreForward>
       BufferedDataStore(BaseDataStoreForward&& dataStore,
-        std::size_t bufferSize, RefType<Threading::ThreadPool> threadPool);
+        std::size_t bufferSize);
 
       ~BufferedDataStore();
 
@@ -55,13 +54,16 @@ namespace Beam {
       void Shutdown();
   };
 
+  template<typename BaseDataStoreForward>
+  BufferedDataStore(BaseDataStoreForward&&, std::size_t) ->
+    BufferedDataStore<std::remove_reference_t<BaseDataStoreForward>>;
+
   template<typename BaseDataStoreType>
   template<typename BaseDataStoreForward>
   BufferedDataStore<BaseDataStoreType>::BufferedDataStore(
-      BaseDataStoreForward&& dataStore, std::size_t bufferSize,
-      RefType<Threading::ThreadPool> threadPool)
-      : m_dataStore{std::forward<BaseDataStoreForward>(dataStore)},
-        m_bufferedDataStore{&*m_dataStore, bufferSize, Ref(threadPool)} {}
+    BaseDataStoreForward&& dataStore, std::size_t bufferSize)
+    : m_dataStore(std::forward<BaseDataStoreForward>(dataStore)),
+      m_bufferedDataStore(&*m_dataStore, bufferSize) {}
 
   template<typename BaseDataStoreType>
   BufferedDataStore<BaseDataStoreType>::~BufferedDataStore() {

@@ -1,96 +1,84 @@
-#include "Beam/ReactorsTests/QueueReactorTester.hpp"
+#include <Aspen/Trigger.hpp>
+#include <doctest/doctest.h>
 #include "Beam/Queues/Queue.hpp"
 #include "Beam/Reactors/QueueReactor.hpp"
 
+using namespace Aspen;
 using namespace Beam;
 using namespace Beam::Reactors;
-using namespace Beam::Reactors::Tests;
-using namespace std;
 
-void QueueReactorTester::TestEmptyQueue() {
-  Trigger trigger;
-  Trigger::SetEnvironmentTrigger(trigger);
-  auto sequenceNumbers = std::make_shared<Queue<int>>();
-  trigger.GetSequenceNumberPublisher().Monitor(sequenceNumbers);
-  auto queue = std::make_shared<Queue<int>>();
-  auto reactor = MakeQueueReactor(static_pointer_cast<QueueReader<int>>(queue));
-  AssertException<ReactorUnavailableException>(*reactor, 0,
-    BaseReactor::Update::NONE);
-  queue->Break();
-  CPPUNIT_ASSERT(sequenceNumbers->Top() == 1);
-  sequenceNumbers->Pop();
-  AssertException<ReactorUnavailableException>(*reactor, 1,
-    BaseReactor::Update::COMPLETE);
-  AssertException<ReactorUnavailableException>(*reactor, 2,
-    BaseReactor::Update::NONE);
-}
-
-void QueueReactorTester::TestImmediateException() {
-  Trigger trigger;
-  Trigger::SetEnvironmentTrigger(trigger);
-  auto sequenceNumbers = std::make_shared<Queue<int>>();
-  trigger.GetSequenceNumberPublisher().Monitor(sequenceNumbers);
-  auto queue = std::make_shared<Queue<int>>();
-  auto reactor = MakeQueueReactor(static_pointer_cast<QueueReader<int>>(queue));
-  AssertException<ReactorUnavailableException>(*reactor, 0,
-    BaseReactor::Update::NONE);
-  queue->Break(DummyException{});
-  CPPUNIT_ASSERT(sequenceNumbers->Top() == 1);
-  sequenceNumbers->Pop();
-  AssertException<DummyException>(*reactor, 1,
-    BaseReactor::Update::COMPLETE_WITH_EVAL);
-  AssertException<DummyException>(*reactor, 2, BaseReactor::Update::NONE);
-}
-
-void QueueReactorTester::TestSingleValue() {
-  Trigger trigger;
-  Trigger::SetEnvironmentTrigger(trigger);
-  auto sequenceNumbers = std::make_shared<Queue<int>>();
-  trigger.GetSequenceNumberPublisher().Monitor(sequenceNumbers);
-  int dummySequenceNumber;
-  for(int i = 1; i < 10; ++i) {
-    trigger.SignalUpdate(Store(dummySequenceNumber));
-    CPPUNIT_ASSERT(sequenceNumbers->Top() == i);
-    sequenceNumbers->Pop();
+TEST_SUITE("QueueReactorTester") {
+  TEST_CASE("Test empty queue.") {
+    auto commits = Beam::Queue<bool>();
+    auto trigger = Trigger(
+      [&] {
+        commits.Push(true);
+      });
+    Trigger::set_trigger(trigger);
+    auto queue = std::make_shared<Beam::Queue<int>>();
+    auto reactor = QueueReactor(queue);
+    REQUIRE(reactor.commit(0) == State::NONE);
+    queue->Break();
+    commits.Top();
+    REQUIRE(reactor.commit(1) == State::COMPLETE);
+    Trigger::set_trigger(nullptr);
   }
-  auto queue = std::make_shared<Queue<int>>();
-  auto reactor = MakeQueueReactor(static_pointer_cast<QueueReader<int>>(queue));
-  AssertException<ReactorUnavailableException>(*reactor, 0,
-    BaseReactor::Update::NONE);
-  queue->Push(123);
-  CPPUNIT_ASSERT(sequenceNumbers->Top() == 10);
-  sequenceNumbers->Pop();
-  AssertValue(*reactor, 10, BaseReactor::Update::EVAL, 123);
-  queue->Break();
-  CPPUNIT_ASSERT(sequenceNumbers->Top() == 11);
-  sequenceNumbers->Pop();
-  AssertValue(*reactor, 11, BaseReactor::Update::COMPLETE, 123);
-  AssertValue(*reactor, 12, BaseReactor::Update::NONE, 123);
-}
-
-void QueueReactorTester::TestSingleValueException() {
-  Trigger trigger;
-  Trigger::SetEnvironmentTrigger(trigger);
-  auto sequenceNumbers = std::make_shared<Queue<int>>();
-  trigger.GetSequenceNumberPublisher().Monitor(sequenceNumbers);
-  int dummySequenceNumber;
-  for(int i = 1; i < 10; ++i) {
-    trigger.SignalUpdate(Store(dummySequenceNumber));
-    CPPUNIT_ASSERT(sequenceNumbers->Top() == i);
-    sequenceNumbers->Pop();
+  TEST_CASE("Test immediate exception.") {
+    auto commits = Beam::Queue<bool>();
+    auto trigger = Trigger(
+      [&] {
+        commits.Push(true);
+      });
+    Trigger::set_trigger(trigger);
+    auto queue = std::make_shared<Beam::Queue<int>>();
+    auto reactor = QueueReactor(queue);
+    REQUIRE(reactor.commit(0) == State::NONE);
+    queue->Break(std::runtime_error("Broken."));
+    commits.Top();
+    REQUIRE(reactor.commit(1) == State::COMPLETE_EVALUATED);
+    REQUIRE_THROWS_AS_MESSAGE(reactor.eval(), std::runtime_error, "Broken.");
+    Trigger::set_trigger(nullptr);
   }
-  auto queue = std::make_shared<Queue<int>>();
-  auto reactor = MakeQueueReactor(static_pointer_cast<QueueReader<int>>(queue));
-  AssertException<ReactorUnavailableException>(*reactor, 0,
-    BaseReactor::Update::NONE);
-  queue->Push(123);
-  CPPUNIT_ASSERT(sequenceNumbers->Top() == 10);
-  sequenceNumbers->Pop();
-  AssertValue(*reactor, 10, BaseReactor::Update::EVAL, 123);
-  queue->Break(DummyException{});
-  CPPUNIT_ASSERT(sequenceNumbers->Top() == 11);
-  sequenceNumbers->Pop();
-  AssertException<DummyException>(*reactor, 11,
-    BaseReactor::Update::COMPLETE_WITH_EVAL);
-  AssertException<DummyException>(*reactor, 12, BaseReactor::Update::NONE);
+  TEST_CASE("Test single value.") {
+    auto commits = Beam::Queue<bool>();
+    auto trigger = Trigger(
+      [&] {
+        commits.Push(true);
+      });
+    Trigger::set_trigger(trigger);
+    auto queue = std::make_shared<Beam::Queue<int>>();
+    auto reactor = QueueReactor(queue);
+    REQUIRE(reactor.commit(0) == State::NONE);
+    queue->Push(123);
+    queue->Break();
+    commits.Top();
+    commits.Pop();
+    commits.Top();
+    commits.Pop();
+    REQUIRE(reactor.commit(1) == State::COMPLETE_EVALUATED);
+    REQUIRE(reactor.eval() == 123);
+    Trigger::set_trigger(nullptr);
+  }
+  TEST_CASE("Test single value exception.") {
+    auto commits = Beam::Queue<bool>();
+    auto trigger = Trigger(
+      [&] {
+        commits.Push(true);
+      });
+    Trigger::set_trigger(trigger);
+    auto queue = std::make_shared<Beam::Queue<int>>();
+    auto reactor = QueueReactor(queue);
+    REQUIRE(reactor.commit(0) == State::NONE);
+    queue->Push(123);
+    queue->Break(std::runtime_error("Broken."));
+    commits.Top();
+    commits.Pop();
+    commits.Top();
+    commits.Pop();
+    REQUIRE(reactor.commit(1) == State::CONTINUE_EVALUATED);
+    REQUIRE(reactor.eval() == 123);
+    REQUIRE(reactor.commit(2) == State::COMPLETE_EVALUATED);
+    REQUIRE_THROWS_AS_MESSAGE(reactor.eval(), std::runtime_error, "Broken.");
+    Trigger::set_trigger(nullptr);
+  }
 }

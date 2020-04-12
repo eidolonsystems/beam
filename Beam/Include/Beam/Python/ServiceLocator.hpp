@@ -1,31 +1,50 @@
-#ifndef BEAM_PYTHONSERVICELOCATOR_HPP
-#define BEAM_PYTHONSERVICELOCATOR_HPP
-#include "Beam/Python/Python.hpp"
+#ifndef BEAM_PYTHON_SERVICE_LOCATOR_HPP
+#define BEAM_PYTHON_SERVICE_LOCATOR_HPP
+#include <pybind11/pybind11.h>
 
-namespace Beam {
-namespace Python {
+namespace Beam::Python {
 
-  //! Exports the ApplicationServiceLocatorClient class.
-  void ExportApplicationServiceLocatorClient();
+  /**
+   * Exports the ApplicationServiceLocatorClient class.
+   * @param module The module to export to.
+   */
+  void ExportApplicationServiceLocatorClient(pybind11::module& module);
 
-  //! Exports the DirectoryEntry struct.
-  void ExportDirectoryEntry();
+  /**
+   * Exports the DirectoryEntry struct.
+   * @param module The module to export to.
+   */
+  void ExportDirectoryEntry(pybind11::module& module);
 
-  //! Exports the Permissions enum.
-  void ExportPermissions();
+  /**
+   * Exports the Permissions enum.
+   * @param module The module to export to.
+   */
+  void ExportPermissions(pybind11::module& module);
 
-  //! Exports the ServiceEntry class.
-  void ExportServiceEntry();
+  /**
+   * Exports the ServiceEntry struct.
+   * @param module The module to export to.
+   */
+  void ExportServiceEntry(pybind11::module& module);
 
-  //! Exports the ServiceLocator namespace.
-  void ExportServiceLocator();
+  /**
+   * Exports the ServiceLocator namespace.
+   * @param module The module to export to.
+   */
+  void ExportServiceLocator(pybind11::module& module);
 
-  //! Exports the ServiceLocatorClient class.
-  void ExportServiceLocatorClient();
+  /**
+   * Exports the ServiceLocatorClient class.
+   * @param module The module to export to.
+   */
+  void ExportServiceLocatorClient(pybind11::module& module);
 
-  //! Exports the ServiceLocatorTestEnvironment class.
-  void ExportServiceLocatorTestEnvironment();
-}
+  /**
+   * Exports the ServiceLocatorTestEnvironment class.
+   * @param module The module to export to.
+   */
+  void ExportServiceLocatorTestEnvironment(pybind11::module& module);
 }
 
 #endif

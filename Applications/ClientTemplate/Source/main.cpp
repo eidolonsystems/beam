@@ -16,8 +16,9 @@
 #include "Beam/Services/ServiceProtocolClient.hpp"
 #include "Beam/Threading/LiveTimer.hpp"
 #include "Beam/Utilities/ApplicationInterrupt.hpp"
+#include "Beam/Utilities/Expect.hpp"
 #include "Beam/Utilities/YamlConfig.hpp"
-#include "ClientTemplate/Version.hpp"
+#include "Version.hpp"
 
 using namespace Beam;
 using namespace Beam::Codecs;
@@ -28,7 +29,6 @@ using namespace Beam::Services;
 using namespace Beam::Threading;
 using namespace boost;
 using namespace boost::posix_time;
-using namespace std;
 using namespace TCLAP;
 
 namespace {
@@ -36,8 +36,8 @@ namespace {
     MessageProtocol<TcpSocketChannel, BinarySender<SharedBuffer>,
     SizeDeclarativeEncoder<ZLibEncoder>>, LiveTimer>;
 
-  vector<IpAddress> ParseAddress(const YAML::Node& config) {
-    vector<IpAddress> addresses;
+  auto ParseAddress(const YAML::Node& config) {
+    auto addresses = std::vector<IpAddress>();
     auto address = Extract<IpAddress>(config, "address");
     addresses.push_back(address);
     return addresses;
@@ -73,46 +73,34 @@ namespace Beam {
 }
 
 int main(int argc, const char** argv) {
-  string configFile;
+  auto configFile = std::string();
   try {
-    CmdLine cmd{"", ' ', "1.0-r" CLIENT_TEMPLATE_VERSION
-      "\nCopyright (C) 2009 Eidolon Systems Ltd."};
-    ValueArg<string> configArg{"c", "config", "Configuration file", false,
-      "config.yml", "path"};
+    auto cmd = CmdLine("", ' ', "1.0-r" CLIENT_TEMPLATE_VERSION
+      "\nCopyright (C) 2020 Spire Trading Inc.");
+    auto configArg = ValueArg<std::string>("c", "config", "Configuration file",
+      false, "config.yml", "path");
     cmd.add(configArg);
     cmd.parse(argc, argv);
     configFile = configArg.getValue();
-  } catch(ArgException& e) {
-    cerr << "error: " << e.error() << " for arg " << e.argId() << endl;
+  } catch(const ArgException& e) {
+    std::cerr << "error: " << e.error() << " for arg " << e.argId() <<
+      std::endl;
     return -1;
   }
-  YAML::Node config;
-  try {
-    ifstream configStream{configFile.c_str()};
-    if(!configStream.good()) {
-      cerr << configFile << " not found." << endl;
-      return -1;
-    }
-    YAML::Parser configParser{configStream};
-    configParser.GetNextDocument(config);
-  } catch(const YAML::ParserException& e) {
-    cerr << "Invalid YAML at line " << (e.mark.line + 1) << ", " << "column " <<
-      (e.mark.column + 1) << ": " << e.msg << endl;
-    return -1;
-  }
-  SocketThreadPool socketThreadPool;
-  TimerThreadPool timerThreadPool;
-  string message;
-  optional<ApplicationClient> client;
-  int rate;
+  auto config = Require(LoadFile, configFile);
+  auto socketThreadPool = SocketThreadPool();
+  auto timerThreadPool = TimerThreadPool();
+  auto message = std::string();
+  auto client = boost::optional<ApplicationClient>();
+  auto rate = 0;
   try {
     auto addresses = ParseAddress(config);
-    message = Extract<string>(config, "message");
+    message = Extract<std::string>(config, "message");
     rate = Extract<int>(config, "rate");
     client.emplace(Initialize(addresses, Ref(socketThreadPool)),
       Initialize(seconds{10}, Ref(timerThreadPool)));
   } catch(const std::exception& e) {
-    cerr << "Unable to initialize client: " << e.what() << endl;
+    std::cerr << "Unable to initialize client: " << e.what() << std::endl;
     return -1;
   }
   RegisterServletTemplateServices(Store(client->GetSlots()));
@@ -120,7 +108,7 @@ int main(int argc, const char** argv) {
   client->Open();
   auto result = client->SendRequest<EchoService>(message, rate);
   std::cout << result << std::endl;
-  int counter = 0;
+  auto counter = 0;
   while(!ReceivedKillEvent()) {
     try {
       auto message = std::dynamic_pointer_cast<

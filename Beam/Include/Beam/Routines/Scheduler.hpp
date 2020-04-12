@@ -1,5 +1,6 @@
 #ifndef BEAM_SCHEDULER_HPP
 #define BEAM_SCHEDULER_HPP
+#include <vector>
 #include <boost/atomic/atomic.hpp>
 #include <boost/lockfree/queue.hpp>
 #include <boost/thread/condition_variable.hpp>
@@ -9,6 +10,10 @@
 #include "Beam/Routines/Routines.hpp"
 #include "Beam/Routines/TerminateRoutine.hpp"
 #include "Beam/Utilities/Singleton.hpp"
+
+#ifndef BEAM_SCHEDULER_DEFAULT_STACK_SIZE
+  #define BEAM_SCHEDULER_DEFAULT_STACK_SIZE 65536
+#endif
 
 namespace Beam {
 namespace Routines {
@@ -21,7 +26,8 @@ namespace Details {
     public:
 
       //! The default size of a Routine's stack.
-      static const std::size_t DEFAULT_STACK_SIZE = 64 * 1024;
+      static constexpr std::size_t DEFAULT_STACK_SIZE =
+        BEAM_SCHEDULER_DEFAULT_STACK_SIZE;
 
       //! Constructs a Scheduler with a number of threads equal to the system's
       //! concurrency.
@@ -64,8 +70,8 @@ namespace Details {
   };
 
   inline Scheduler::Scheduler()
-      : m_nextId{0},
-        m_pendingRoutines{boost::thread::hardware_concurrency()} {
+      : m_nextId(0),
+        m_pendingRoutines(boost::thread::hardware_concurrency()) {
     for(std::size_t i = 0; i < boost::thread::hardware_concurrency(); ++i) {
       m_threads.emplace_back(
         [=] {

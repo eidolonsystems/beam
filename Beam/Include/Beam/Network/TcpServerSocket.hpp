@@ -32,7 +32,7 @@ namespace Network {
         \param socketThreadPool The thread pool used for the sockets.
       */
       TcpServerSocket(const IpAddress& address,
-        RefType<SocketThreadPool> socketThreadPool);
+        Ref<SocketThreadPool> socketThreadPool);
 
       ~TcpServerSocket();
 
@@ -53,7 +53,7 @@ namespace Network {
   };
 
   inline TcpServerSocket::TcpServerSocket(const IpAddress& address,
-      RefType<SocketThreadPool> socketThreadPool)
+      Ref<SocketThreadPool> socketThreadPool)
       : m_address(address),
         m_socketThreadPool(socketThreadPool.Get()),
         m_ioService(&m_socketThreadPool->GetService()) {}
@@ -72,7 +72,7 @@ namespace Network {
         ToString(m_address.GetPort()));
       boost::system::error_code error;
       auto endpointIterator = resolver.resolve(query, error);
-      if(error != 0) {
+      if(error) {
         BOOST_THROW_EXCEPTION(SocketException(error.value(), error.message()));
       }
       m_acceptor.emplace(*m_ioService, *endpointIterator);
@@ -98,7 +98,7 @@ namespace Network {
       Ref(*m_socketThreadPool)});
     m_acceptor->async_accept(channel->m_socket->m_socket,
       [&] (const boost::system::error_code& error) {
-        if(error != 0) {
+        if(error) {
           if(Details::IsEndOfFile(error)) {
             acceptEval.SetException(IO::EndOfFileException(error.message()));
           } else {

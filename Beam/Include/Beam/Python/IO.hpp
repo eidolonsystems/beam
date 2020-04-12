@@ -1,34 +1,62 @@
-#ifndef BEAM_PYTHONIO_HPP
-#define BEAM_PYTHONIO_HPP
-#include "Beam/Python/Python.hpp"
+#ifndef BEAM_PYTHON_IO_HPP
+#define BEAM_PYTHON_IO_HPP
+#include <pybind11/pybind11.h>
+#include "Beam/IO/SharedBuffer.hpp"
+#include "Beam/Python/Out.hpp"
+#include "Beam/Utilities/DllExport.hpp"
 
-namespace Beam {
-namespace Python {
+namespace Beam::Python {
 
-  //! Exports the Channel class.
-  void ExportChannel();
+  /** Returns the Python object representing an IOException. */
+  BEAM_EXPORT_DLL const pybind11::object& GetIOException();
 
-  //! Exports the ChannelIdentifier class.
-  void ExportChannelIdentifier();
+  /**
+   * Exports the Channel class.
+   * @param module The module to export to.
+   */
+  void ExportChannel(pybind11::module& module);
 
-  //! Exports the Connection class.
-  void ExportConnection();
+  /**
+   * Exports the ChannelIdentifier class.
+   * @param module The module to export to.
+   */
+  void ExportChannelIdentifier(pybind11::module& module);
 
-  //! Exports the IO namespace.
-  void ExportIO();
+  /**
+   * Exports the Connection class.
+   * @param module The module to export to.
+   */
+  void ExportConnection(pybind11::module& module);
 
-  //! Exports the OpenState class.
-  void ExportOpenState();
+  /**
+   * Exports the IO namespace.
+   * @param module The module to export to.
+   */
+  void ExportIO(pybind11::module& module);
 
-  //! Exports the Reader class.
-  void ExportReader();
+  /**
+   * Exports the OpenState class.
+   * @param module The module to export to.
+   */
+  void ExportOpenState(pybind11::module& module);
 
-  //! Exports the SharedBuffer class.
-  void ExportSharedBuffer();
+  /**
+   * Exports the Reader class.
+   * @param module The module to export to.
+   */
+  void ExportReader(pybind11::module& module);
 
-  //! Exports the Writer class.
-  void ExportWriter();
-}
+  /**
+   * Exports the SharedBuffer class.
+   * @param module The module to export to.
+   */
+  void ExportSharedBuffer(pybind11::module& module);
+
+  /**
+   * Exports the Writer class.
+   * @param module The module to export to.
+   */
+  void ExportWriter(pybind11::module& module);
 }
 
 #endif

@@ -31,7 +31,7 @@ namespace Network {
         \param socketThreadPool The thread pool used for the sockets.
       */
       TcpSocketChannel(const IpAddress& address,
-        RefType<SocketThreadPool> socketThreadPool);
+        Ref<SocketThreadPool> socketThreadPool);
 
       //! Constructs a TcpSocketChannel.
       /*!
@@ -39,8 +39,8 @@ namespace Network {
         \param interface The interface to bind to.
         \param socketThreadPool The thread pool used for the sockets.
       */
-      TcpSocketChannel(const IpAddress& address,
-        const IpAddress& interface, RefType<SocketThreadPool> socketThreadPool);
+      TcpSocketChannel(const IpAddress& address, const IpAddress& interface,
+        Ref<SocketThreadPool> socketThreadPool);
 
       //! Constructs a TcpSocketChannel.
       /*!
@@ -48,7 +48,7 @@ namespace Network {
         \param socketThreadPool The thread pool used for the sockets.
       */
       TcpSocketChannel(const std::vector<IpAddress>& addresses,
-        RefType<SocketThreadPool> socketThreadPool);
+        Ref<SocketThreadPool> socketThreadPool);
 
       //! Constructs a TcpSocketChannel.
       /*!
@@ -57,7 +57,7 @@ namespace Network {
         \param socketThreadPool The thread pool used for the sockets.
       */
       TcpSocketChannel(const std::vector<IpAddress>& addresses,
-        const IpAddress& interface, RefType<SocketThreadPool> socketThreadPool);
+        const IpAddress& interface, Ref<SocketThreadPool> socketThreadPool);
 
       const Identifier& GetIdentifier() const;
 
@@ -75,23 +75,23 @@ namespace Network {
       Reader m_reader;
       Writer m_writer;
 
-      TcpSocketChannel(RefType<SocketThreadPool> socketThreadPool);
+      TcpSocketChannel(Ref<SocketThreadPool> socketThreadPool);
       void SetAddress(const IpAddress& address);
   };
 
   inline TcpSocketChannel::TcpSocketChannel(const IpAddress& address,
-      RefType<SocketThreadPool> socketThreadPool)
+      Ref<SocketThreadPool> socketThreadPool)
       : m_socket(std::make_shared<Details::TcpSocketEntry>(
-          socketThreadPool->GetService())),
+          socketThreadPool->GetService(), socketThreadPool->GetService())),
         m_identifier(address),
         m_connection(m_socket, address),
         m_reader(m_socket),
         m_writer(m_socket) {}
 
   inline TcpSocketChannel::TcpSocketChannel(const IpAddress& address,
-      const IpAddress& interface, RefType<SocketThreadPool> socketThreadPool)
+      const IpAddress& interface, Ref<SocketThreadPool> socketThreadPool)
       : m_socket(std::make_shared<Details::TcpSocketEntry>(
-          socketThreadPool->GetService())),
+          socketThreadPool->GetService(), socketThreadPool->GetService())),
         m_identifier(address),
         m_connection(m_socket, address, interface),
         m_reader(m_socket),
@@ -99,19 +99,19 @@ namespace Network {
 
   inline TcpSocketChannel::TcpSocketChannel(
       const std::vector<IpAddress>& addresses,
-      RefType<SocketThreadPool> socketThreadPool)
+      Ref<SocketThreadPool> socketThreadPool)
       : m_socket(std::make_shared<Details::TcpSocketEntry>(
-          socketThreadPool->GetService())),
+          socketThreadPool->GetService(), socketThreadPool->GetService())),
         m_identifier(addresses.front()),
         m_connection(m_socket, addresses),
         m_reader(m_socket),
         m_writer(m_socket) {}
 
   inline TcpSocketChannel::TcpSocketChannel(
-      const std::vector<IpAddress>& addresses,
-      const IpAddress& interface, RefType<SocketThreadPool> socketThreadPool)
+      const std::vector<IpAddress>& addresses, const IpAddress& interface,
+      Ref<SocketThreadPool> socketThreadPool)
       : m_socket(std::make_shared<Details::TcpSocketEntry>(
-          socketThreadPool->GetService())),
+          socketThreadPool->GetService(), socketThreadPool->GetService())),
         m_identifier(addresses.front()),
         m_connection(m_socket, addresses, interface),
         m_reader(m_socket),
@@ -135,9 +135,9 @@ namespace Network {
   }
 
   inline TcpSocketChannel::TcpSocketChannel(
-      RefType<SocketThreadPool> socketThreadPool)
+      Ref<SocketThreadPool> socketThreadPool)
       : m_socket(std::make_shared<Details::TcpSocketEntry>(
-          socketThreadPool->GetService())),
+          socketThreadPool->GetService(), socketThreadPool->GetService())),
         m_connection(m_socket),
         m_reader(m_socket),
         m_writer(m_socket) {}

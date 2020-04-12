@@ -1,26 +1,26 @@
-#ifndef BEAM_PYTHONCOLLECTIONS_HPP
-#define BEAM_PYTHONCOLLECTIONS_HPP
-#include <boost/python.hpp>
+#ifndef BEAM_PYTHON_COLLECTIONS_HPP
+#define BEAM_PYTHON_COLLECTIONS_HPP
+#include <pybind11/pybind11.h>
 #include "Beam/Collections/View.hpp"
-#include "Beam/Python/Python.hpp"
 
-namespace Beam {
-namespace Python {
+namespace Beam::Python {
 
-  //! Exports the View template.
+  /**
+   * Exports the View template.
+   * @param module The module to export to.
+   * @param name The name of the class to export.
+   */
   template<typename T>
-  void ExportView(const char* name) {
-    boost::python::class_<View<T>>(name, boost::python::no_init)
+  void ExportView(pybind11::module& module, const char* name) {
+    pybind11::class_<View<T>>(module, name)
       .def("empty", &View<T>::empty)
-      .def("front", static_cast<const T& (View<T>::*)() const>(&View<T>::front),
-        boost::python::return_value_policy<
-        boost::python::copy_const_reference>())
-      .def("back", static_cast<const T& (View<T>::*)() const>(&View<T>::back),
-        boost::python::return_value_policy<
-        boost::python::copy_const_reference>())
-      .def("__iter__", boost::python::iterator<View<T>>());
+      .def("front", static_cast<const T& (View<T>::*)() const>(&View<T>::front))
+      .def("back", static_cast<const T& (View<T>::*)() const>(&View<T>::back))
+      .def("__iter__",
+        [] (const View<T>& view) {
+          return pybind11::make_iterator(view.begin(), view.end());
+        }, pybind11::keep_alive<0, 1>());
   }
-}
 }
 
 #endif

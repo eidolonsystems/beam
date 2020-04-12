@@ -1,13 +1,13 @@
-#ifndef BEAM_PYTHONYAML_HPP
-#define BEAM_PYTHONYAML_HPP
-#include "Beam/Python/Python.hpp"
+#ifndef BEAM_PYTHON_YAML_HPP
+#define BEAM_PYTHON_YAML_HPP
+#include <pybind11/pybind11.h>
 
-namespace Beam {
-namespace Python {
+namespace Beam::Python {
 
-  //! Exports the Yaml class.
-  void ExportYaml();
-}
+  /**
+   * Exports the Yaml class.
+   */
+  void ExportYaml(pybind11::module& module);
 }
 
 #endif

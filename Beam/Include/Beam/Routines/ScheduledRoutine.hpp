@@ -44,13 +44,13 @@ namespace Routines {
       //! Begins running this Routine.
       virtual void Execute() = 0;
 
-      virtual void Defer() override final;
+      void Defer() override final;
 
-      virtual void PendingSuspend() override final;
+      void PendingSuspend() override final;
 
-      virtual void Suspend() override final;
+      void Suspend() override final;
 
-      virtual void Resume() override final;
+      void Resume() override final;
 
     protected:
 
@@ -60,7 +60,7 @@ namespace Routines {
         \param scheduler The Scheduler this Routine will execute through.
       */
       ScheduledRoutine(std::size_t stackSize,
-        RefType<Details::Scheduler> scheduler);
+        Ref<Details::Scheduler> scheduler);
 
     private:
       friend class Details::Scheduler;
@@ -70,6 +70,9 @@ namespace Routines {
       boost::context::continuation m_parent;
       std::vector<Routine*> m_suspendedRoutines;
       std::shared_ptr<ScheduledRoutine> m_self;
+      #ifndef NDEBUG
+      std::string m_stackPrint;
+      #endif
 
       boost::context::continuation InitializeRoutine(
         boost::context::continuation&& parent);
@@ -162,8 +165,8 @@ namespace Routines {
   }
 
   inline ScheduledRoutine::ScheduledRoutine(std::size_t stackSize,
-      RefType<Details::Scheduler> scheduler)
-      : m_scheduler{scheduler.Get()} {}
+    Ref<Details::Scheduler> scheduler)
+    : m_scheduler(scheduler.Get()) {}
 
   inline boost::context::continuation ScheduledRoutine::InitializeRoutine(
       boost::context::continuation&& parent) {

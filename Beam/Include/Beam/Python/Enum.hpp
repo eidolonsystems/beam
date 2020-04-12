@@ -1,90 +1,52 @@
-#ifndef BEAM_PYTHONENUM_HPP
-#define BEAM_PYTHONENUM_HPP
-#include <boost/python.hpp>
+#ifndef BEAM_PYTHON_ENUM_HPP
+#define BEAM_PYTHON_ENUM_HPP
+#include <pybind11/pybind11.h>
 #include "Beam/Collections/Enum.hpp"
-#include "Beam/Python/Python.hpp"
+#include "Beam/Python/BasicTypeCaster.hpp"
 
-namespace Beam {
-namespace Python {
+namespace Beam::Python {
 
-  /*! \struct EnumClassToPythonConverter
-      \brief Converts an Enum<T> to a Python object.
-      \tparam T The Enum type to convert.
+  /**
+   * Implements a type caster for Beam::Enum types.
+   * @param <T> The type of enum to cast.
    */
   template<typename T>
-  struct EnumClassToPythonConverter {
-
-    //! The Enum type to convert.
+  struct EnumTypeCaster : BasicTypeCaster<T> {
     using Type = T;
-
-    //! Converts an Enum to a Python object.
-    /*!
-      \param value The value to convert.
-      \return The Python object represented by the <i>value</i>.
-    */
-    static PyObject* convert(const Type& value);
+    using Converter = pybind11::detail::make_caster<typename Type::Type>;
+    static constexpr auto name = pybind11::detail::_("Enum[") +
+      Converter::name + pybind11::detail::_("]");
+    static pybind11::handle cast(Type value,
+      pybind11::return_value_policy policy, pybind11::handle parent);
+    bool load(pybind11::handle source, bool convert);
+    using BasicTypeCaster<T>::m_value;
   };
 
-  /*! \struct EnumClassFromPythonConverter
-      \brief Converts an Enum from a Python object.
-      \tparam T The Enum type to convert.
-   */
   template<typename T>
-  struct EnumClassFromPythonConverter {
-
-    //! The Enum type to convert.
-    using Type = T;
-
-    //! Tests if a Python object can be converted to an Enum.
-    /*!
-      \param object The Python object to test.
-      \return The <i>object</i> iff it is convertible to an Enum.
-    */
-    static void* convertible(PyObject* object);
-
-    //! Constructs an Enum type from a Python object.
-    /*!
-      \param object The object to convert.
-      \param data The storage to use for the conversion.
-    */
-    static void construct(PyObject* object,
-      boost::python::converter::rvalue_from_python_stage1_data* data);
-  };
-
-  //! Exports an Enum.
-  template<typename T>
-  void ExportEnum() {
-    boost::python::to_python_converter<T, EnumClassToPythonConverter<T>>();
-    boost::python::converter::registry::push_back(
-      &EnumClassFromPythonConverter<T>::convertible,
-      &EnumClassFromPythonConverter<T>::construct,
-      boost::python::type_id<T>());
+  pybind11::handle EnumTypeCaster<T>::cast(Type value,
+      pybind11::return_value_policy policy, pybind11::handle parent) {
+    policy = pybind11::detail::return_value_policy_override<
+      typename Type::Type>::policy(policy);
+    return Converter::cast(static_cast<typename Type::Type>(value), policy,
+      parent);
   }
 
   template<typename T>
-  PyObject* EnumClassToPythonConverter<T>::convert(const Type& value) {
-    return boost::python::incref(boost::python::object{
-      static_cast<typename Type::Type>(value)}.ptr());
-  }
-
-  template<typename T>
-  void* EnumClassFromPythonConverter<T>::convertible(PyObject* object) {
-    if(boost::python::extract<typename Type::Type>(object).check()) {
-      return object;
+  bool EnumTypeCaster<T>::load(pybind11::handle source, bool convert) {
+    auto caster = Converter();
+    if(!caster.load(source, convert)) {
+      return false;
     }
-    return nullptr;
-  }
-
-  template<typename T>
-  void EnumClassFromPythonConverter<T>::construct(PyObject* object,
-      boost::python::converter::rvalue_from_python_stage1_data* data) {
-    auto storage = reinterpret_cast<
-      boost::python::converter::rvalue_from_python_storage<Type>*>(
-      data)->storage.bytes;
-    new(storage) Type{boost::python::extract<typename Type::Type>(object)()};
-    data->convertible = storage;
+    m_value.emplace(pybind11::detail::cast_op<typename Type::Type&&>(
+      std::move(caster)));
+    return true;
   }
 }
+
+namespace pybind11::detail {
+  template<typename T, std::size_t N>
+  struct type_caster<Beam::Enum<T, N>> : Beam::Python::EnumTypeCaster<
+    Beam::Enum<T, N>> {};
 }
 
 #endif

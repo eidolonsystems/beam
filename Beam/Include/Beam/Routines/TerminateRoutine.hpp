@@ -16,17 +16,17 @@ namespace Routines {
       /*!
         \param scheduler The Scheduler to terminate.
       */
-      TerminateRoutine(RefType<Details::Scheduler> scheduler);
+      TerminateRoutine(Ref<Details::Scheduler> scheduler);
 
-      virtual void Execute() override;
+      void Execute() override;
   };
 
   inline TerminateRoutine::TerminateRoutine(
-      RefType<Details::Scheduler> scheduler)
-      : ScheduledRoutine{64 * 1024, Ref(scheduler)} {}
+    Ref<Details::Scheduler> scheduler)
+    : ScheduledRoutine(64 * 1024, Ref(scheduler)) {}
 
   inline void TerminateRoutine::Execute() {
-    throw RoutineException{"Routine aborted."};
+    throw RoutineException("Routine aborted.");
   }
 }
 }

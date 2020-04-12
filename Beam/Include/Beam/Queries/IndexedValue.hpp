@@ -92,21 +92,9 @@ namespace Queries {
       Index m_index;
   };
 
-  //! Makes an IndexedValue.
-  /*!
-    \param value The value to store.
-    \param index The <i>value</i>'s index.
-    \return An IndexedValue storing the <i>value</i> and with the given
-            <i>index</i>.
-  */
-  template<typename Value, typename Index>
-  IndexedValue<typename std::decay<Value>::type,
-      typename std::decay<Index>::type> MakeIndexedValue(Value&& value,
-      Index&& index) {
-    return IndexedValue<typename std::decay<Value>::type,
-      typename std::decay<Index>::type>(std::forward<Value>(value),
-      std::forward<Index>(index));
-  }
+  template<typename V, typename I>
+  IndexedValue(V&& value, I&& index) ->
+    IndexedValue<std::decay_t<V>, std::decay_t<I>>;
 
   template<typename Value, typename Index>
   struct TimestampAccessor<IndexedValue<Value, Index>> {

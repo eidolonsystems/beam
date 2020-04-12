@@ -1,54 +1,46 @@
-#ifndef BEAM_GILLOCK_HPP
-#define BEAM_GILLOCK_HPP
-#include <boost/noncopyable.hpp>
-#include <ceval.h>
-#include <pystate.h>
-#include <pythread.h>
-#include "Beam/Python/Python.hpp"
+#ifndef BEAM_PYTHON_GIL_LOCK_HPP
+#define BEAM_PYTHON_GIL_LOCK_HPP
+#include <pybind11/pybind11.h>
 
-namespace Beam {
-namespace Python {
+namespace Beam::Python {
 
-  /*! \class GilLock
-      \brief Acquires Python's global interpreter lock.
-   */
-  class GilLock : boost::noncopyable {
+  /** Acquires Python's global interpreter lock. */
+  class GilLock {
     public:
 
-      //! Constructs a GilLock.
-      GilLock() = default;
+      /** Locks the GIL/ */
+      GilLock();
 
-      //! Acquired the Python global interpreter lock.
-      void lock();
-
-      //! Releases the Python global interpreter lock.
-      void unlock();
+      ~GilLock();
 
     private:
       bool m_hasGil;
       PyGILState_STATE m_state;
+
+      GilLock(const GilLock&) = delete;
+      GilLock& operator =(const GilLock&) = delete;
   };
 
-  //! Returns <code>true</code> iff this thread has the global interpreter lock.
+  /**
+   * Returns <code>true</code> iff this thread has the global interpreter
+   * lock.
+   */
   inline bool HasGil() {
-    auto threadState = _PyThreadState_Current;
-    return threadState != nullptr &&
-      (threadState == PyGILState_GetThisThreadState());
+    return PyGILState_Check() != 0;
   }
 
-  inline void GilLock::lock() {
+  inline GilLock::GilLock() {
     m_hasGil = HasGil();
     if(!m_hasGil) {
       m_state = PyGILState_Ensure();
     }
   }
 
-  inline void GilLock::unlock() {
+  inline GilLock::~GilLock() {
     if(!m_hasGil) {
       PyGILState_Release(m_state);
     }
   }
-}
 }
 
 #endif

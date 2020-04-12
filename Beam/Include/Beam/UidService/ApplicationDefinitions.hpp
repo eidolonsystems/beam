@@ -1,5 +1,6 @@
-#ifndef BEAM_UIDAPPLICATIONDEFINITIONS_HPP
-#define BEAM_UIDAPPLICATIONDEFINITIONS_HPP
+#ifndef BEAM_UID_APPLICATION_DEFINITIONS_HPP
+#define BEAM_UID_APPLICATION_DEFINITIONS_HPP
+#include <optional>
 #include <string>
 #include "Beam/IO/SharedBuffer.hpp"
 #include "Beam/IO/SizeDeclarativeReader.hpp"
@@ -7,7 +8,6 @@
 #include "Beam/IO/WrapperChannel.hpp"
 #include "Beam/Network/IpAddress.hpp"
 #include "Beam/Network/TcpSocketChannel.hpp"
-#include "Beam/Pointers/DelayPtr.hpp"
 #include "Beam/Pointers/Ref.hpp"
 #include "Beam/Serialization/BinaryReceiver.hpp"
 #include "Beam/Serialization/BinarySender.hpp"
@@ -23,14 +23,6 @@
 
 namespace Beam {
 namespace UidService {
-namespace Details {
-  using UidClientSessionBuilder =
-    Services::AuthenticatedServiceProtocolClientBuilder<
-    ServiceLocator::ApplicationServiceLocatorClient::Client,
-    Services::MessageProtocol<std::unique_ptr<Network::TcpSocketChannel>,
-    Serialization::BinarySender<IO::SharedBuffer>, Codecs::NullEncoder>,
-    Threading::LiveTimer>;
-}
 
   /*! \class ApplicationUidClient
       \brief Encapsulates a standard UidClient used in an application.
@@ -38,8 +30,16 @@ namespace Details {
   class ApplicationUidClient : private boost::noncopyable {
     public:
 
+      //! The type used to build client sessions.
+      using SessionBuilder =
+        Services::AuthenticatedServiceProtocolClientBuilder<
+        ServiceLocator::ApplicationServiceLocatorClient::Client,
+        Services::MessageProtocol<std::unique_ptr<Network::TcpSocketChannel>,
+        Serialization::BinarySender<IO::SharedBuffer>, Codecs::NullEncoder>,
+        Threading::LiveTimer>;
+
       //! Defines the standard UidClient used for applications.
-      using Client = UidClient<Details::UidClientSessionBuilder>;
+      using Client = UidClient<SessionBuilder>;
 
       //! Constructs an ApplicationUidClient.
       ApplicationUidClient() = default;
@@ -52,10 +52,10 @@ namespace Details {
                connection.
         \param timerThreadPool The TimerThreadPool used for heartbeats.
       */
-      void BuildSession(RefType<ServiceLocator::
+      void BuildSession(Ref<ServiceLocator::
         ApplicationServiceLocatorClient::Client> serviceLocatorClient,
-        RefType<Network::SocketThreadPool> socketThreadPool,
-        RefType<Threading::TimerThreadPool> timerThreadPool);
+        Ref<Network::SocketThreadPool> socketThreadPool,
+        Ref<Threading::TimerThreadPool> timerThreadPool);
 
       //! Returns a reference to the Client.
       Client& operator *();
@@ -76,16 +76,16 @@ namespace Details {
       const Client* Get() const;
 
     private:
-      DelayPtr<Client> m_client;
+      std::optional<Client> m_client;
   };
 
   inline void ApplicationUidClient::BuildSession(
-      RefType<ServiceLocator::ApplicationServiceLocatorClient::Client>
-      serviceLocatorClient, RefType<Network::SocketThreadPool> socketThreadPool,
-      RefType<Threading::TimerThreadPool> timerThreadPool) {
-    if(m_client.IsInitialized()) {
+      Ref<ServiceLocator::ApplicationServiceLocatorClient::Client>
+      serviceLocatorClient, Ref<Network::SocketThreadPool> socketThreadPool,
+      Ref<Threading::TimerThreadPool> timerThreadPool) {
+    if(m_client.has_value()) {
       m_client->Close();
-      m_client.Reset();
+      m_client = std::nullopt;
     }
     auto serviceLocatorClientHandle = serviceLocatorClient.Get();
     auto socketThreadPoolHandle = socketThreadPool.Get();
@@ -93,10 +93,11 @@ namespace Details {
     auto addresses = ServiceLocator::LocateServiceAddresses(
       *serviceLocatorClientHandle, SERVICE_NAME);
     auto delay = false;
-    Details::UidClientSessionBuilder sessionBuilder(Ref(serviceLocatorClient),
+    auto sessionBuilder = SessionBuilder(
+      Ref(serviceLocatorClient),
       [=] () mutable {
         if(delay) {
-          Threading::LiveTimer delayTimer(boost::posix_time::seconds(3),
+          auto delayTimer = Threading::LiveTimer(boost::posix_time::seconds(3),
             Ref(*timerThreadPoolHandle));
           delayTimer.Start();
           delayTimer.Wait();
@@ -109,16 +110,16 @@ namespace Details {
         return std::make_unique<Threading::LiveTimer>(
           boost::posix_time::seconds(10), Ref(*timerThreadPoolHandle));
       });
-    m_client.Initialize(sessionBuilder);
+    m_client.emplace(sessionBuilder);
   }
 
   inline ApplicationUidClient::Client& ApplicationUidClient::operator *() {
-    return m_client.Get();
+    return *m_client;
   }
 
   inline const ApplicationUidClient::Client&
       ApplicationUidClient::operator *() const {
-    return m_client.Get();
+    return *m_client;
   }
 
   inline ApplicationUidClient::Client* ApplicationUidClient::operator ->() {

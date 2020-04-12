@@ -1,10 +1,11 @@
 #include "Beam/Python/WebServices.hpp"
-#include "Beam/IO/VirtualChannel.hpp"
-#include "Beam/Python/BoostPython.hpp"
-#include "Beam/Python/Exception.hpp"
-#include "Beam/Python/GilRelease.hpp"
+#include <pybind11/operators.h>
+#include <pybind11/stl.h>
+#include <boost/lexical_cast.hpp>
+#include "Beam/Python/Beam.hpp"
+#include "Beam/Python/Enum.hpp"
 #include "Beam/Python/Optional.hpp"
-#include "Beam/Python/PythonBindings.hpp"
+#include "Beam/IO/VirtualChannel.hpp"
 #include "Beam/WebServices/HttpClient.hpp"
 #include "Beam/WebServices/HttpHeader.hpp"
 #include "Beam/WebServices/HttpMethod.hpp"
@@ -20,7 +21,6 @@
 #include "Beam/WebServices/SecureSocketChannelFactory.hpp"
 #include "Beam/WebServices/SocketChannelFactory.hpp"
 #include "Beam/WebServices/TcpChannelFactory.hpp"
-#include "Beam/WebServices/Uri.hpp"
 
 using namespace Beam;
 using namespace Beam::IO;
@@ -28,146 +28,46 @@ using namespace Beam::Network;
 using namespace Beam::Python;
 using namespace Beam::WebServices;
 using namespace boost;
-using namespace boost::python;
-using namespace std;
+using namespace pybind11;
 
-namespace {
-  HttpClient<std::unique_ptr<VirtualChannel>>* MakeHttpClient() {
-    return new HttpClient<std::unique_ptr<VirtualChannel>>{
-      TcpSocketChannelFactory{Ref(*GetSocketThreadPool())}};
-  }
-
-  HttpClient<std::unique_ptr<VirtualChannel>>* MakeInterfaceHttpClient(
-      const IpAddress& interface) {
-    return new HttpClient<std::unique_ptr<VirtualChannel>>{
-      TcpSocketChannelFactory{interface, Ref(*GetSocketThreadPool())}};
-  }
-
-  HttpRequest* MakeFullHttpRequest(HttpVersion version, HttpMethod method,
-      Uri uri, const boost::python::list& headers,
-      const SpecialHeaders& specialHeaders, const boost::python::list& cookies,
-      SharedBuffer body) {
-    auto properHeaders = ToVector<HttpHeader>(headers);
-    auto properCookies = ToVector<Cookie>(cookies);
-    return new HttpRequest{version, method, std::move(uri),
-      std::move(properHeaders), specialHeaders, std::move(properCookies),
-      std::move(body)};
-  }
-
-  void EncodeHttpRequest(const HttpRequest& request, SharedBuffer& buffer) {
-    request.Encode(Store(buffer));
-  }
-
-  void EncodeHttpResponse(const HttpResponse& response, SharedBuffer& buffer) {
-    response.Encode(Store(buffer));
-  }
-
-  void HttpRequestParserFeedString(HttpRequestParser& parser,
-      const boost::python::str& value) {
-    parser.Feed(PyString_AsString(value.ptr()), len(value));
-  }
-
-  void HttpRequestParserFeedBuffer(HttpRequestParser& parser,
-      const SharedBuffer& buffer) {
-    parser.Feed(buffer.GetData(), buffer.GetSize());
-  }
-
-  void HttpResponseParserFeedString(HttpResponseParser& parser,
-      const boost::python::str& value) {
-    parser.Feed(PyString_AsString(value.ptr()), len(value));
-  }
-
-  void HttpResponseParserFeedBuffer(HttpResponseParser& parser,
-      const SharedBuffer& buffer) {
-    parser.Feed(buffer.GetData(), buffer.GetSize());
-  }
-
-  boost::python::object HttpRequestGetHeader(const HttpRequest& request,
-      const string& name) {
-    auto header = request.GetHeader(name);
-    if(header.is_initialized()) {
-      return boost::python::object{*header};
-    }
-    return boost::python::object{};
-  }
-
-  boost::python::object HttpRequestGetCookie(const HttpRequest& request,
-      const string& name) {
-    auto cookie = request.GetCookie(name);
-    if(cookie.is_initialized()) {
-      return boost::python::object{*cookie};
-    }
-    return boost::python::object{};
-  }
-
-  boost::python::object HttpResponseGetHeader(const HttpResponse& response,
-      const string& name) {
-    auto header = response.GetHeader(name);
-    if(header.is_initialized()) {
-      return boost::python::object{*header};
-    }
-    return boost::python::object{};
-  }
-
-  boost::python::object HttpResponseGetCookie(const HttpResponse& response,
-      const string& name) {
-    auto cookie = response.GetCookie(name);
-    if(cookie.is_initialized()) {
-      return boost::python::object{*cookie};
-    }
-    return boost::python::object{};
-  }
-
-  SecureSocketChannelFactory* MakeSecureSocketChannelFactory() {
-    return new SecureSocketChannelFactory{Ref(*GetSocketThreadPool())};
-  }
-
-  SocketChannelFactory* MakeSocketChannelFactory() {
-    return new SocketChannelFactory{Ref(*GetSocketThreadPool())};
-  }
-
-  TcpSocketChannelFactory* MakeTcpSocketChannelFactory() {
-    return new TcpSocketChannelFactory{Ref(*GetSocketThreadPool())};
-  }
+void Beam::Python::ExportCookie(pybind11::module& module) {
+  class_<Cookie>(module, "Cookie")
+    .def(init())
+    .def(init<std::string, std::string>())
+    .def_property_readonly("name", &Cookie::GetName)
+    .def_property("value", &Cookie::GetValue, &Cookie::SetValue)
+    .def_property("domain", &Cookie::GetDomain, &Cookie::SetDomain)
+    .def_property("path", &Cookie::GetPath, &Cookie::SetPath)
+    .def_property("is_secure", &Cookie::IsSecure, &Cookie::SetSecure)
+    .def_property("is_http_only", &Cookie::IsHttpOnly, &Cookie::SetHttpOnly);
 }
 
-void Beam::Python::ExportCookie() {
-  class_<Cookie>("Cookie", init<>())
-    .def(init<string, string>())
-    .add_property("name", make_function(
-      &Cookie::GetName, return_value_policy<copy_const_reference>()))
-    .add_property("value", make_function(
-      &Cookie::GetValue, return_value_policy<copy_const_reference>()),
-      &Cookie::SetValue)
-    .add_property("domain", make_function(
-      &Cookie::GetDomain, return_value_policy<copy_const_reference>()),
-      &Cookie::SetDomain)
-    .add_property("path", make_function(
-      &Cookie::GetPath, return_value_policy<copy_const_reference>()),
-      &Cookie::SetPath)
-    .add_property("is_secure", &Cookie::IsSecure, &Cookie::SetSecure)
-    .add_property("is_http_only", &Cookie::IsSecure, &Cookie::IsHttpOnly);
-}
-
-void Beam::Python::ExportHttpClient() {
+void Beam::Python::ExportHttpClient(pybind11::module& module) {
   using HttpClient = WebServices::HttpClient<std::unique_ptr<VirtualChannel>>;
-  class_<HttpClient, noncopyable>("HttpClient", no_init)
-    .def("__init__", make_constructor(&MakeHttpClient))
-    .def("__init__", make_constructor(&MakeInterfaceHttpClient))
-    .def("send", BlockingFunction(&HttpClient::Send));
+  class_<HttpClient>(module, "HttpClient")
+    .def(init(
+      [] {
+        return std::make_unique<HttpClient>(
+          TcpSocketChannelFactory(Ref(*GetSocketThreadPool())));
+      }))
+    .def(init(
+      [] (const IpAddress& interface) {
+        return std::make_unique<HttpClient>(
+          TcpSocketChannelFactory(interface, Ref(*GetSocketThreadPool())));
+      }))
+    .def("send", &HttpClient::Send, call_guard<gil_scoped_release>());
 }
 
-void Beam::Python::ExportHttpHeader() {
-  class_<HttpHeader>("HttpHeader", init<const string&, const string&>())
-    .def("__str__", &lexical_cast<string, HttpHeader>)
-    .add_property("name", make_function(&HttpHeader::GetName,
-      return_value_policy<copy_const_reference>()))
-    .add_property("value", make_function(&HttpHeader::GetValue,
-      return_value_policy<copy_const_reference>()));
+void Beam::Python::ExportHttpHeader(pybind11::module& module) {
+  class_<HttpHeader>(module, "HttpHeader")
+    .def(init<const std::string&, const std::string&>())
+    .def("__str__", &lexical_cast<std::string, HttpHeader>)
+    .def_property_readonly("name", &HttpHeader::GetName)
+    .def_property_readonly("value", &HttpHeader::GetValue);
 }
 
-void Beam::Python::ExportHttpMethod() {
-  enum_<HttpMethod>("HttpMethod")
+void Beam::Python::ExportHttpMethod(pybind11::module& module) {
+  enum_<HttpMethod>(module, "HttpMethod")
     .value("HEAD", HttpMethod::HEAD)
     .value("GET", HttpMethod::GET)
     .value("POST", HttpMethod::POST)
@@ -179,85 +79,91 @@ void Beam::Python::ExportHttpMethod() {
     .value("PATCH", HttpMethod::PATCH);
 }
 
-void Beam::Python::ExportHttpRequest() {
-  enum_<ConnectionHeader>("ConnectionHeader")
+void Beam::Python::ExportHttpRequest(pybind11::module& module) {
+  enum_<ConnectionHeader>(module, "ConnectionHeader")
     .value("CLOSE", ConnectionHeader::CLOSE)
     .value("KEEP_ALIVE", ConnectionHeader::KEEP_ALIVE)
     .value("UPGRADE", ConnectionHeader::UPGRADE);
-  class_<SpecialHeaders>("SpecialHeaders", init<>())
+  class_<SpecialHeaders>(module, "SpecialHeaders")
+    .def(init())
     .def(init<HttpVersion>())
     .def_readwrite("host", &SpecialHeaders::m_host)
     .def_readwrite("content_length", &SpecialHeaders::m_contentLength)
     .def_readwrite("connection", &SpecialHeaders::m_connection);
-  class_<HttpRequest>("HttpRequest", init<Uri>())
+  class_<HttpRequest>(module, "HttpRequest")
+    .def(init<Uri>())
     .def(init<HttpMethod, Uri>())
     .def(init<HttpVersion, HttpMethod, Uri>())
-    .def("__init__", make_constructor(&MakeFullHttpRequest))
-    .def("__str__", &lexical_cast<string, HttpRequest>)
-    .add_property("version", make_function(&HttpRequest::GetVersion,
-      return_value_policy<copy_const_reference>()))
-    .add_property("method", &HttpRequest::GetMethod)
-    .add_property("uri", make_function(&HttpRequest::GetUri,
-      return_value_policy<copy_const_reference>()))
-    .def("get_header", &HttpRequestGetHeader)
-    .add_property("headers", make_function(&HttpRequest::GetHeaders,
-      return_value_policy<copy_const_reference>()))
-    .add_property("special_headers", make_function(
-      &HttpRequest::GetSpecialHeaders,
-      return_value_policy<copy_const_reference>()))
+    .def(init<HttpVersion, HttpMethod, Uri, std::vector<HttpHeader>,
+      const SpecialHeaders&, std::vector<Cookie>, SharedBuffer>())
+    .def("__str__", &lexical_cast<std::string, HttpRequest>)
+    .def_property_readonly("version", &HttpRequest::GetVersion)
+    .def_property_readonly("method", &HttpRequest::GetMethod)
+    .def_property_readonly("uri", &HttpRequest::GetUri)
+    .def("get_header", &HttpRequest::GetHeader)
+    .def_property_readonly("headers", &HttpRequest::GetHeaders)
+    .def_property_readonly("special_headers", &HttpRequest::GetSpecialHeaders)
     .def("add",
       static_cast<void (HttpRequest::*)(HttpHeader)>(&HttpRequest::Add))
-    .def("get_cookie", &HttpRequestGetCookie)
-    .add_property("cookies", make_function(&HttpRequest::GetCookies,
-      return_value_policy<copy_const_reference>()))
+    .def("get_cookie", &HttpRequest::GetCookie)
+    .def_property_readonly("cookies", &HttpRequest::GetCookies)
     .def("add",
       static_cast<void (HttpRequest::*)(Cookie)>(&HttpRequest::Add))
-    .add_property("body", make_function(&HttpRequest::GetBody,
-      return_internal_reference<>()))
-    .def("encode", &EncodeHttpRequest);
-  python_optional<HttpRequest>();
+    .def_property_readonly("body", &HttpRequest::GetBody,
+      return_value_policy::reference_internal)
+    .def("encode", &HttpRequest::Encode<SharedBuffer>);
 }
 
-void Beam::Python::ExportHttpRequestParser() {
-  class_<HttpRequestParser, noncopyable>("HttpRequestParser", init<>())
-    .def("feed", &HttpRequestParserFeedString)
-    .def("feed", &HttpRequestParserFeedBuffer)
+void Beam::Python::ExportHttpRequestParser(pybind11::module& module) {
+  class_<HttpRequestParser>(module, "HttpRequestParser")
+    .def(init())
+    .def("feed",
+      [] (HttpRequestParser& self, const pybind11::str& value) {
+        self.Feed(PyUnicode_AsUTF8(value.ptr()), len(value));
+      })
+    .def("feed",
+      [] (HttpRequestParser& self, const SharedBuffer& value) {
+        self.Feed(value.GetData(), value.GetSize());
+      })
     .def("get_next_request", &HttpRequestParser::GetNextRequest);
 }
 
-void Beam::Python::ExportHttpResponse() {
-  class_<HttpResponse>("HttpResponse", init<>())
+void Beam::Python::ExportHttpResponse(pybind11::module& module) {
+  class_<HttpResponse>(module, "HttpResponse")
+    .def(init())
     .def(init<HttpStatusCode>())
-    .def("__str__", &lexical_cast<string, HttpResponse>)
-    .add_property("version", make_function(&HttpResponse::GetVersion,
-      return_value_policy<copy_const_reference>()), &HttpResponse::SetVersion)
-    .add_property("status_code", &HttpResponse::GetStatusCode,
+    .def("__str__", &lexical_cast<std::string, HttpResponse>)
+    .def_property("version", &HttpResponse::GetVersion,
+      &HttpResponse::SetVersion)
+    .def_property("status_code", &HttpResponse::GetStatusCode,
       &HttpResponse::SetStatusCode)
-    .def("get_header", &HttpResponseGetHeader)
-    .def("headers", make_function(&HttpResponse::GetHeaders,
-      return_value_policy<copy_const_reference>()))
+    .def("get_header", &HttpResponse::GetHeader)
+    .def("headers", &HttpResponse::GetHeaders)
     .def("set_header", &HttpResponse::SetHeader)
-    .add_property("cookies", make_function(
-      &HttpResponse::GetCookies, return_value_policy<copy_const_reference>()))
-    .def("get_cookie", &HttpResponseGetCookie)
+    .def_property_readonly("cookies", &HttpResponse::GetCookies)
+    .def("get_cookie", &HttpResponse::GetCookie)
     .def("set_cookie", &HttpResponse::SetCookie)
-    .add_property("body", make_function(
-      &HttpResponse::GetBody, return_value_policy<copy_const_reference>()),
-      &HttpResponse::SetBody)
-    .def("encode", &EncodeHttpResponse);
-  python_optional<HttpResponse>();
+    .def_property("body", &HttpResponse::GetBody, &HttpResponse::SetBody)
+    .def("encode", &HttpResponse::Encode<SharedBuffer>);
 }
 
-void Beam::Python::ExportHttpResponseParser() {
-  class_<HttpResponseParser, noncopyable>("HttpResponseParser", init<>())
-    .def("feed", &HttpResponseParserFeedString)
-    .def("feed", &HttpResponseParserFeedBuffer)
+void Beam::Python::ExportHttpResponseParser(pybind11::module& module) {
+  class_<HttpResponseParser>(module, "HttpResponseParser")
+    .def(init())
+    .def("feed",
+      [] (HttpResponseParser& self, const pybind11::str& value) {
+        self.Feed(PyUnicode_AsUTF8(value.ptr()), len(value));
+      })
+    .def("feed",
+      [] (HttpResponseParser& self, const SharedBuffer& value) {
+        self.Feed(value.GetData(), value.GetSize());
+      })
     .def("get_next_response", &HttpResponseParser::GetNextResponse)
     .def("get_remaining_buffer", &HttpResponseParser::GetRemainingBuffer);
 }
 
-void Beam::Python::ExportHttpStatusCode() {
-  enum_<HttpStatusCode>("HttpStatusCode")
+void Beam::Python::ExportHttpStatusCode(pybind11::module& module) {
+  enum_<HttpStatusCode>(module, "HttpStatusCode")
    .value("CONTINUE", HttpStatusCode::CONTINUE)
    .value("SWITCHING_PROTOCOLS", HttpStatusCode::SWITCHING_PROTOCOLS)
    .value("PROCESSING", HttpStatusCode::PROCESSING)
@@ -320,91 +226,85 @@ void Beam::Python::ExportHttpStatusCode() {
    .value("INSUFFICIENT_STORAGE", HttpStatusCode::INSUFFICIENT_STORAGE)
    .value("BANDWIDTH_LIMIT_EXCEEDED", HttpStatusCode::BANDWIDTH_LIMIT_EXCEEDED)
    .value("NOT_EXTENDED", HttpStatusCode::NOT_EXTENDED);
-  def("get_reason_phrase", &GetReasonPhrase,
-    return_value_policy<copy_const_reference>());
+  module.def("get_reason_phrase", &GetReasonPhrase);
 }
 
-void Beam::Python::ExportHttpVersion() {
-  class_<HttpVersion>("HttpVersion", init<>())
-    .add_static_property("V_1_0", &HttpVersion::Version1_0)
-    .add_static_property("V_1_1", &HttpVersion::Version1_1)
-    .def("__str__", &lexical_cast<string, HttpVersion>)
-    .add_property("major", &HttpVersion::GetMajor)
-    .add_property("minor", &HttpVersion::GetMinor)
+void Beam::Python::ExportHttpVersion(pybind11::module& module) {
+  class_<HttpVersion>(module, "HttpVersion")
+    .def(init())
+    .def_property_readonly_static("V_1_0",
+      [] (const object&) { return HttpVersion::Version1_0(); })
+    .def_property_readonly_static("V_1_1",
+      [] (const object&) { return HttpVersion::Version1_1(); })
+    .def("__str__", &lexical_cast<std::string, HttpVersion>)
+    .def_property_readonly("major", &HttpVersion::GetMajor)
+    .def_property_readonly("minor", &HttpVersion::GetMinor)
     .def(self == self)
     .def(self != self);
 }
 
-void Beam::Python::ExportSecureSocketChannelFactory() {
-  class_<SecureSocketChannelFactory>("SecureSocketChannelFactory", no_init)
-    .def("__init__", make_constructor(&MakeSecureSocketChannelFactory));
+void Beam::Python::ExportSecureSocketChannelFactory(pybind11::module& module) {
+  class_<SecureSocketChannelFactory>(module, "SecureSocketChannelFactory")
+    .def(init(
+      [] {
+        return std::make_unique<SecureSocketChannelFactory>(
+          Ref(*GetSocketThreadPool()));
+      }));
 }
 
-void Beam::Python::ExportSocketChannelFactory() {
-  class_<SocketChannelFactory>("SocketChannelFactory", no_init)
-    .def("__init__", make_constructor(&MakeSocketChannelFactory));
+void Beam::Python::ExportSocketChannelFactory(pybind11::module& module) {
+  class_<SocketChannelFactory>(module, "SocketChannelFactory")
+    .def(init(
+      [] {
+        return std::make_unique<SocketChannelFactory>(
+          Ref(*GetSocketThreadPool()));
+      }));
 }
 
-void Beam::Python::ExportTcpSocketChannelFactory() {
-  class_<TcpSocketChannelFactory>("TcpSocketChannelFactory", no_init)
-    .def("__init__", make_constructor(&MakeTcpSocketChannelFactory));
+void Beam::Python::ExportTcpSocketChannelFactory(pybind11::module& module) {
+  class_<TcpSocketChannelFactory>(module, "TcpSocketChannelFactory")
+    .def(init(
+      [] {
+        return std::make_unique<TcpSocketChannelFactory>(
+          Ref(*GetSocketThreadPool()));
+      }));
 }
 
-void Beam::Python::ExportUri() {
-  class_<Uri>("Uri", init<>())
-    .def(init<const string&>())
-    .add_property("scheme", make_function(&Uri::GetScheme,
-      return_value_policy<copy_const_reference>()))
-    .add_property("username", make_function(&Uri::GetUsername,
-      return_value_policy<copy_const_reference>()))
-    .add_property("password", make_function(&Uri::GetPassword,
-      return_value_policy<copy_const_reference>()))
-    .add_property("hostname", make_function(&Uri::GetHostname,
-      return_value_policy<copy_const_reference>()))
-    .add_property("port", &Uri::GetPort, &Uri::SetPort)
-    .add_property("path", make_function(&Uri::GetPath,
-      return_value_policy<copy_const_reference>()))
-    .add_property("query", make_function(&Uri::GetQuery,
-      return_value_policy<copy_const_reference>()))
-    .add_property("fragment", make_function(&Uri::GetFragment,
-      return_value_policy<copy_const_reference>()));
+void Beam::Python::ExportUri(pybind11::module& module) {
+  class_<Uri>(module, "Uri")
+    .def(init())
+    .def(init<const std::string&>())
+    .def_property_readonly("scheme", &Uri::GetScheme)
+    .def_property_readonly("username", &Uri::GetUsername)
+    .def_property_readonly("password", &Uri::GetPassword)
+    .def_property_readonly("hostname", &Uri::GetHostname)
+    .def_property("port", &Uri::GetPort, &Uri::SetPort)
+    .def_property_readonly("path", &Uri::GetPath)
+    .def_property_readonly("query", &Uri::GetQuery)
+    .def_property_readonly("fragment", &Uri::GetFragment);
 }
 
-void Beam::Python::ExportWebServices() {
-  string nestedName = extract<string>(scope().attr("__name__") +
-    ".web_services");
-  object nestedModule{handle<>(
-    borrowed(PyImport_AddModule(nestedName.c_str())))};
-  scope().attr("web_services") = nestedModule;
-  scope parent = nestedModule;
-  ExportCookie();
-  ExportHttpClient();
-  ExportHttpHeader();
-  ExportHttpMethod();
-  ExportHttpRequest();
-  ExportHttpRequestParser();
-  ExportHttpResponse();
-  ExportHttpResponseParser();
-  ExportHttpStatusCode();
-  ExportHttpVersion();
-  ExportSecureSocketChannelFactory();
-  ExportSocketChannelFactory();
-  ExportTcpSocketChannelFactory();
-  ExportUri();
-  ExportException<InvalidHttpRequestException, std::runtime_error>(
-    "InvalidHttpRequestException")
-    .def(init<>())
-    .def(init<const string&>());
-  ExportException<InvalidHttpResponseException, std::runtime_error>(
-    "InvalidHttpResponseException")
-    .def(init<>())
-    .def(init<const string&>());
-  ExportException<MalformedUriException, std::runtime_error>(
-    "MalformedUriException")
-    .def(init<>())
-    .def(init<const string&>());
-  ExportException<SessionDataStoreException, IOException>(
-    "SessionDataStoreException")
-    .def(init<>())
-    .def(init<const string&>());
+void Beam::Python::ExportWebServices(pybind11::module& module) {
+  auto submodule = module.def_submodule("web_services");
+  ExportCookie(submodule);
+  ExportHttpClient(submodule);
+  ExportHttpHeader(submodule);
+  ExportHttpMethod(submodule);
+  ExportHttpRequest(submodule);
+  ExportHttpRequestParser(submodule);
+  ExportHttpResponse(submodule);
+  ExportHttpResponseParser(submodule);
+  ExportHttpStatusCode(submodule);
+  ExportHttpVersion(submodule);
+  ExportSecureSocketChannelFactory(submodule);
+  ExportSocketChannelFactory(submodule);
+  ExportTcpSocketChannelFactory(submodule);
+  ExportUri(submodule);
+  register_exception<InvalidHttpRequestException>(submodule,
+    "InvalidHttpRequestException");
+  register_exception<InvalidHttpResponseException>(submodule,
+    "InvalidHttpResponseException");
+  register_exception<MalformedUriException>(submodule, "MalformedUriException");
+  register_exception<SessionDataStoreException>(submodule,
+    "SessionDataStoreException", GetIOException().ptr());
 }

@@ -1,77 +1,85 @@
-#ifndef BEAM_PYTHONROUTINES_HPP
-#define BEAM_PYTHONROUTINES_HPP
-#include <boost/python.hpp>
-#include "Beam/Python/GilRelease.hpp"
-#include "Beam/Python/Python.hpp"
+#ifndef BEAM_PYTHON_ROUTINES_HPP
+#define BEAM_PYTHON_ROUTINES_HPP
+#include <pybind11/pybind11.h>
 #include "Beam/Routines/Async.hpp"
 
-namespace Beam {
-namespace Python {
-namespace Details {
-  template<typename T>
-  void EvalSetResult(Routines::Eval<T>& eval, const T& value) {
-    eval.SetResult(value);
-  }
+namespace Beam::Python {
 
+  /**
+   * Exports the generic Eval class.
+   * @param module The module to export to.
+   * @param prefix The prefix to use when forming the type name.
+   */
   template<typename T>
-  std::shared_ptr<Routines::Eval<T>> MakeEval() {
-    return std::make_shared<Routines::Eval<T>>();
-  }
-
-  template<typename T>
-  std::shared_ptr<Routines::Eval<T>> AsyncGetEval(Routines::Async<T>& async) {
-    return std::make_shared<Routines::Eval<T>>(async.GetEval());
-  }
-}
-
-  //! Exports the Eval class.
-  template<typename T>
-  void ExportEval(const char* name) {
-    boost::python::class_<Routines::Eval<T>, std::shared_ptr<Routines::Eval<T>>,
-      boost::noncopyable, boost::python::bases<Routines::BaseEval>>(
-      name, boost::python::no_init)
-      .def("__init__", boost::python::make_constructor(&Details::MakeEval<T>))
+  void ExportEval(pybind11::module& module, const std::string& prefix) {
+    auto name = prefix + "Eval";
+    if(pybind11::hasattr(module, name.c_str())) {
+      return;
+    }
+    pybind11::class_<Routines::Eval<T>, Routines::BaseEval>(module,
+        name.c_str())
+      .def(pybind11::init())
       .def("is_empty", &Routines::Eval<T>::IsEmpty)
-      .def("set_result", &Details::EvalSetResult<T>);
+      .def("set_result",
+        [] (Routines::Eval<T>& self) {
+          self.SetResult();
+        })
+      .def("set_result",
+        [] (Routines::Eval<T>& self, const T& value) {
+          self.SetResult(value);
+        });
   }
 
-  //! Exports the Async class.
+  /**
+   * Exports the generic Async class.
+   * @param module The module to export to.
+   * @param prefix The prefix to use when forming the type name.
+   */
   template<typename T>
-  void ExportAsync(const char* name) {
-    boost::python::class_<Routines::Async<T>, boost::noncopyable,
-      boost::python::bases<Routines::BaseAsync>>(name, boost::python::init<>())
-      .def("get_eval", &Details::AsyncGetEval<T>)
-      .def("get", BlockingFunction(&Routines::Async<T>::Get,
-        boost::python::return_value_policy<
-        boost::python::copy_non_const_reference>()))
-      .def("get_exception", &Routines::Async<T>::GetException,
-        boost::python::return_value_policy<
-        boost::python::copy_const_reference>())
-      .add_property("state", &Routines::Async<T>::GetState)
+  void ExportAsync(pybind11::module& module, const std::string& prefix) {
+    auto name = prefix + "Async";
+    if(pybind11::hasattr(module, name.c_str())) {
+      return;
+    }
+    pybind11::class_<Routines::Async<T>, Routines::BaseAsync>(module,
+        name.c_str())
+      .def(pybind11::init())
+      .def("get_eval", &Routines::Async<T>::GetEval)
+      .def("get", &Routines::Async<T>::Get,
+        pybind11::call_guard<pybind11::gil_scoped_release>())
+      .def("get_exception", &Routines::Async<T>::GetException)
+      .def_property_readonly("state", &Routines::Async<T>::GetState)
       .def("reset", &Routines::Async<T>::Reset);
   }
 
-  //! Exports the BaseAsync class.
-  void ExportBaseAsync();
+  /**
+   * Exports the BaseAsync class.
+   * @param module The module to export to.
+   */
+  void ExportBaseAsync(pybind11::module& module);
 
-  //! Exports the BaseEval class.
-  void ExportBaseEval();
+  /**
+   * Exports the BaseEval class.
+   * @param module The module to export to.
+   */
+  void ExportBaseEval(pybind11::module& module);
 
-  //! Exports an Async using native Python objects.
-  void ExportPythonAsync();
+  /**
+   * Exports the RoutineHandler class.
+   * @param module The module to export to.
+   */
+  void ExportRoutineHandler(pybind11::module& module);
 
-  //! Exports an Eval using native Python objects.
-  void ExportPythonEval();
+  /**
+   * Exports the RoutineHandlerGroup class.
+   * @param module The module to export to.
+   */
+  void ExportRoutineHandlerGroup(pybind11::module& module);
 
-  //! Exports the RoutineHandler class.
-  void ExportRoutineHandler();
-
-  //! Exports the RoutineHandlerGroup class.
-  void ExportRoutineHandlerGroup();
-
-  //! Exports the Routines namespace.
-  void ExportRoutines();
-}
+  /**
+   * Exports the Routines namespace.
+   */
+  void ExportRoutines(pybind11::module& module);
 }
 
 #endif

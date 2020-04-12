@@ -1,12 +1,11 @@
-#ifndef BEAM_UIDSERVICE_HPP
-#define BEAM_UIDSERVICE_HPP
+#ifndef BEAM_UID_SERVICE_HPP
+#define BEAM_UID_SERVICE_HPP
 #include <string>
 
-namespace Beam {
-namespace UidService {
+namespace Beam::UidService {
   class ApplicationUidClient;
   class LocalUidDataStore;
-  class MySqlUidDataStore;
+  template<typename C> class SqlUidDataStore;
   template<typename ServiceProtocolClientBuilderType> class UidClient;
   class UidDataStore;
   class UidServiceException;
@@ -15,8 +14,7 @@ namespace UidService {
   template<typename ClientType> class WrapperUidClient;
 
   // Standard name for the uid service.
-  static const std::string SERVICE_NAME = "uid_service";
-}
+  inline const std::string SERVICE_NAME = "uid_service";
 }
 
 #endif

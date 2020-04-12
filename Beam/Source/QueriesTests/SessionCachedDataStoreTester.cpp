@@ -29,7 +29,7 @@ namespace {
 
   using BaseDataStore = LocalDataStore<BasicQuery<string>, Entry,
     EvaluatorTranslator<QueryTypes>>;
-  using TestDataStore = SessionCachedDataStore<BaseDataStore*,
+  using DataStore = SessionCachedDataStore<BaseDataStore*,
     EvaluatorTranslator<QueryTypes>>;
   using SequencedEntry = SequencedValue<Entry>;
   using SequencedIndexedEntry = SequencedValue<IndexedValue<Entry, string>>;
@@ -44,16 +44,16 @@ namespace {
     return m_value == rhs.m_value && m_timestamp == rhs.m_timestamp;
   }
 
-  SequencedIndexedEntry StoreValue(TestDataStore& dataStore, string index,
+  SequencedIndexedEntry StoreValue(DataStore& dataStore, string index,
       int value, const ptime& timestamp,
       const Beam::Queries::Sequence& sequence) {
-    auto entry = MakeSequencedValue(MakeIndexedValue(Entry(value, timestamp),
-      index), sequence);
+    auto entry = SequencedValue(IndexedValue(Entry(value, timestamp), index),
+      sequence);
     dataStore.Store(entry);
     return entry;
   }
 
-  void TestQuery(TestDataStore& dataStore, string index,
+  void TestQuery(DataStore& dataStore, string index,
       const Beam::Queries::Range& range, const SnapshotLimit& limit,
       const std::vector<SequencedEntry>& expectedResult) {
     BasicQuery<string> query;
@@ -67,7 +67,7 @@ namespace {
 
 void SessionCachedDataStoreTester::TestStoreAndLoad() {
   BaseDataStore baseDataStore;
-  TestDataStore dataStore(&baseDataStore, 10);
+  DataStore dataStore(&baseDataStore, 10);
   IncrementalTimeClient timeClient;
   Beam::Queries::Sequence sequence(5);
   SequencedIndexedEntry entryA = StoreValue(dataStore, "hello", 100,
@@ -104,15 +104,15 @@ void SessionCachedDataStoreTester::TestStoreAndLoad() {
 
 void SessionCachedDataStoreTester::TestForwardCoherence() {
   BaseDataStore baseDataStore;
-  TestDataStore dataStore(&baseDataStore, 10);
+  DataStore dataStore(&baseDataStore, 10);
   IncrementalTimeClient timeClient;
   Beam::Queries::Sequence sequence(100);
-  auto entryA = MakeSequencedValue(MakeIndexedValue(
-    Entry(100, timeClient.GetTime()), "hello"), sequence);
+  auto entryA = SequencedValue(IndexedValue(Entry(100, timeClient.GetTime()),
+    "hello"), sequence);
   baseDataStore.Store(entryA);
   sequence = Increment(sequence);
-  auto entryB = MakeSequencedValue(MakeIndexedValue(
-    Entry(200, timeClient.GetTime()), "hello"), sequence);
+  auto entryB = SequencedValue(IndexedValue(Entry(200, timeClient.GetTime()),
+    "hello"), sequence);
   baseDataStore.Store(entryB);
   {
     BasicQuery<string> query;
@@ -125,9 +125,9 @@ void SessionCachedDataStoreTester::TestForwardCoherence() {
     CPPUNIT_ASSERT(queryResult[1] == entryB);
   }
   for(auto i = Sequence(102); i < Sequence(130); i = Increment(i)) {
-    auto entry = MakeSequencedValue(MakeIndexedValue(
-      Entry(static_cast<int>(i.GetOrdinal()), timeClient.GetTime()),
-      "hello"), i);
+    auto entry = SequencedValue(IndexedValue(
+      Entry(static_cast<int>(i.GetOrdinal()), timeClient.GetTime()), "hello"),
+      i);
     dataStore.Store(entry);
   }
   {

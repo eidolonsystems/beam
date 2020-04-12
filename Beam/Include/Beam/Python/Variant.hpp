@@ -1,109 +1,60 @@
-#ifndef BEAM_PYTHONVARIANT_HPP
-#define BEAM_PYTHONVARIANT_HPP
+#ifndef BEAM_PYTHON_VARIANT_HPP
+#define BEAM_PYTHON_VARIANT_HPP
 #include <boost/mpl/for_each.hpp>
-#include <boost/variant/variant.hpp>
 #include <boost/variant/static_visitor.hpp>
-#include "Beam/Python/BoostPython.hpp"
-#include "Beam/Utilities/FixedString.hpp"
+#include <boost/variant/variant.hpp>
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+#include "Beam/Python/BasicTypeCaster.hpp"
 
-namespace Beam {
-namespace Python {
-namespace Details {
-  struct VariantConversionVisitor : boost::static_visitor<PyObject*> {
-    template<typename T>
-    PyObject* operator()(const T& object) const {
-      return boost::python::incref(boost::python::object(object).ptr());
-    }
+namespace pybind11::detail {
+  template<typename... T>
+  struct type_caster<boost::variant<T...>> :
+      Beam::Python::BasicTypeCaster<boost::variant<T...>> {
+    using Type = boost::variant<T...>;
+    static constexpr auto name = pybind11::detail::_("Variant[") +
+      pybind11::detail::concat(pybind11::detail::make_caster<T>::name...) +
+      pybind11::detail::_("]");
+    template<typename V>
+    static pybind11::handle cast(V&& value,
+      pybind11::return_value_policy policy, pybind11::handle parent);
+    bool load(pybind11::handle source, bool convert);
+    using Beam::Python::BasicTypeCaster<Type>::m_value;
   };
 
-  struct VariantExtractor {
-    PyObject* m_object;
-    bool* m_isConvertible;
-
-    VariantExtractor(PyObject* object, bool& isConvertible)
-        : m_object(object),
-          m_isConvertible(&isConvertible) {}
-
-    template<typename T>
-    void operator ()(T) const {
-      *m_isConvertible = *m_isConvertible ||
-        boost::python::extract<T>(m_object).check();
-    }
-  };
-
+  template<typename... T>
   template<typename V>
-  struct VariantConstructor {
-    PyObject* m_object;
-    boost::python::converter::rvalue_from_python_stage1_data* m_data;
-
-    VariantConstructor(PyObject* object,
-        boost::python::converter::rvalue_from_python_stage1_data* data)
-        : m_object(object),
-          m_data(data) {
-      m_data->convertible = nullptr;
-    }
-
-    template<typename T>
-    void operator ()(T) const {
-      if(m_data->convertible != nullptr) {
-        return;
-      }
-      boost::python::extract<T> extractor(m_object);
-      if(!extractor.check()) {
-        return;
-      }
-      auto storage = reinterpret_cast<boost::python::converter::
-        rvalue_from_python_storage<V>*>(m_data)->storage.bytes;
-      new(storage) V(extractor());
-      m_data->convertible = storage;
-    }
-  };
-
-  template<typename V>
-  struct VariantToPython {
-    static PyObject* convert(const V& value) {
-      return boost::apply_visitor(VariantConversionVisitor(), value);
-    }
-  };
-
-  template<typename V>
-  struct VariantFromPythonConverter {
-    static void* convertible(PyObject* object) {
-      if(object == Py_None) {
-        return nullptr;
-      }
-      bool isConvertible = false;
-      boost::mpl::for_each<typename V::types>(VariantExtractor(object,
-        isConvertible));
-      if(isConvertible) {
-        return object;
-      }
-      return nullptr;
-    }
-
-    static void construct(PyObject* object,
-        boost::python::converter::rvalue_from_python_stage1_data* data) {
-      boost::mpl::for_each<typename V::types>(
-        VariantConstructor<V>(object, data));
-    }
-  };
-}
-
-  //! Exports a variant to python.
-  template<typename T>
-  void ExportVariant() {
-    auto typeId = boost::python::type_id<T>();
-    auto registration = boost::python::converter::registry::query(typeId);
-    if(registration != nullptr && registration->m_to_python != nullptr) {
-      return;
-    }
-    boost::python::to_python_converter<T, Details::VariantToPython<T>>();
-    boost::python::converter::registry::push_back(
-      &Details::VariantFromPythonConverter<T>::convertible,
-      &Details::VariantFromPythonConverter<T>::construct,
-      boost::python::type_id<T>());
+  pybind11::handle type_caster<boost::variant<T...>>::cast(V&& value,
+      pybind11::return_value_policy policy, pybind11::handle parent) {
+    return boost::apply_visitor(
+      [&] (auto&& value) {
+        using U = std::decay_t<decltype(value)>;
+        policy = pybind11::detail::return_value_policy_override<U>::policy(
+          policy);
+        return pybind11::detail::make_caster<U>::cast(
+          std::forward<decltype(value)>(value), policy, parent);
+      }, std::forward<V>(value));
   }
-}
+
+  template<typename... T>
+  bool type_caster<boost::variant<T...>>::load(pybind11::handle source,
+      bool convert) {
+    auto is_converted = false;
+    boost::mpl::for_each<typename boost::variant<T...>::types>(
+      [&] (auto&& unused) {
+        using U = std::decay_t<decltype(unused)>;
+        if(is_converted) {
+          return;
+        }
+        auto caster = pybind11::detail::make_caster<U>();
+        if(!caster.load(source, convert)) {
+          return;
+        }
+        m_value.emplace(pybind11::detail::cast_op<U&&>(std::move(caster)));
+        is_converted = true;
+      });
+    return is_converted;
+  }
 }
 
 #endif

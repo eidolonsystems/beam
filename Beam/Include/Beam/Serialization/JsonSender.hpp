@@ -2,7 +2,7 @@
 #define BEAM_JSONSENDER_HPP
 #include <cstring>
 #include <type_traits>
-#include "Beam/IO/Buffer.hpp"
+#include "Beam/IO/SharedBuffer.hpp"
 #include "Beam/Serialization/DataShuttle.hpp"
 #include "Beam/Serialization/SenderMixin.hpp"
 #include "Beam/Utilities/ToString.hpp"
@@ -53,9 +53,9 @@ namespace Details {
       /*!
         \param registry The TypeRegistry used for sending polymorphic types.
       */
-      JsonSender(RefType<TypeRegistry<JsonSender>> registry);
+      JsonSender(Ref<TypeRegistry<JsonSender>> registry);
 
-      void SetSink(RefType<Sink> sink);
+      void SetSink(Ref<Sink> sink);
 
       void Send(const char* name, const unsigned char& value);
 
@@ -96,18 +96,27 @@ namespace Details {
       bool m_appendComma;
   };
 
+  /** Converts an object to its JSON representation. */
+  template<typename T>
+  std::string ToJson(const T& object) {
+    auto sender = JsonSender<IO::SharedBuffer>();
+    auto buffer = IO::SharedBuffer();
+    sender.SetSink(Ref(buffer));
+    sender.Send(object);
+    return std::string(buffer.GetData(), buffer.GetSize());
+  }
+
   template<typename SinkType>
   JsonSender<SinkType>::JsonSender()
       : m_appendComma{false} {}
 
   template<typename SinkType>
-  JsonSender<SinkType>::JsonSender(
-      RefType<TypeRegistry<JsonSender>> registry)
+  JsonSender<SinkType>::JsonSender(Ref<TypeRegistry<JsonSender>> registry)
       : SenderMixin<JsonSender<SinkType>>(Ref(registry)),
         m_appendComma{false} {}
 
   template<typename SinkType>
-  void JsonSender<SinkType>::SetSink(RefType<Sink> sink) {
+  void JsonSender<SinkType>::SetSink(Ref<Sink> sink) {
     m_appendComma = false;
     m_sink = sink.Get();
   }

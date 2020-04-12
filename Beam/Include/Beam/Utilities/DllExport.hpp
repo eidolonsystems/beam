@@ -1,25 +1,23 @@
-#ifndef BEAM_DLLEXPORT_HPP
-#define BEAM_DLLEXPORT_HPP
+#ifndef BEAM_DLL_EXPORTS
+#define BEAM_DLL_EXPORTS
 
-#ifdef BEAM_BUILD_DLL
-  #ifdef _MSC_VER
+#ifdef _MSC_VER
+  #define BEAM_EXTERN
+  #if defined(BEAM_BUILD_DLL)
     #define BEAM_EXPORT_DLL __declspec(dllexport)
-    #define BEAM_EXTERN
-  #else
-    #define BEAM_EXPORT_DLL
-    #define BEAM_EXTERN
-  #endif
-#elif defined BEAM_USE_DLL
-  #ifdef _MSC_VER
+  #elif defined(BEAM_USE_DLL)
     #define BEAM_EXPORT_DLL __declspec(dllimport)
-    #define BEAM_EXTERN extern
   #else
     #define BEAM_EXPORT_DLL
-    #define BEAM_EXTERN
   #endif
 #else
-  #define BEAM_EXPORT_DLL
-  #define BEAM_EXTERN
+  #if defined(BEAM_BUILD_DLL) || defined(BEAM_USE_DLL)
+    #define BEAM_EXTERN extern
+    #define BEAM_EXPORT_DLL __attribute__((visibility ("default")))
+  #else
+    #define BEAM_EXTERN
+    #define BEAM_EXPORT_DLL
+  #endif
 #endif
 
 #endif

@@ -1,17 +1,17 @@
-#ifndef BEAM_FIXEDSTRING_HPP
-#define BEAM_FIXEDSTRING_HPP
+#ifndef BEAM_FIXED_STRING_HPP
+#define BEAM_FIXED_STRING_HPP
 #include <cstring>
 #include "Beam/Utilities/Utilities.hpp"
 
 namespace Beam {
 
-  /*! \class FixedString
-      \brief String class used to store small strings using a fixed buffer.
+  /** String class used to store small strings using a fixed buffer.
       \tparam N The size of the fixed buffer.
    */
   template<std::size_t N>
   class FixedString {
     public:
+      static constexpr auto SIZE = N;
 
       //! Constructs an empty string.
       FixedString();

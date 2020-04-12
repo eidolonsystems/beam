@@ -1,5 +1,6 @@
 #ifndef BEAM_MULTICASTSOCKET_HPP
 #define BEAM_MULTICASTSOCKET_HPP
+#include <optional>
 #include <boost/asio/ip/udp.hpp>
 #include <boost/asio/ip/multicast.hpp>
 #include <boost/asio/ip/unicast.hpp>
@@ -31,7 +32,7 @@ namespace Network {
         \param socketThreadPool The thread pool used for the sockets.
       */
       MulticastSocket(const IpAddress& group, const IpAddress& interface,
-        RefType<SocketThreadPool> socketThreadPool);
+        Ref<SocketThreadPool> socketThreadPool);
 
       ~MulticastSocket();
 
@@ -77,8 +78,8 @@ namespace Network {
       SocketThreadPool* m_socketThreadPool;
       UdpSocketReceiver::Settings m_receiverSettings;
       std::shared_ptr<Details::UdpSocketEntry> m_socket;
-      DelayPtr<UdpSocketReceiver> m_receiver;
-      DelayPtr<UdpSocketSender> m_sender;
+      std::optional<UdpSocketReceiver> m_receiver;
+      std::optional<UdpSocketSender> m_sender;
       IO::OpenState m_openState;
 
       void Shutdown();
@@ -86,7 +87,7 @@ namespace Network {
   };
 
   inline MulticastSocket::MulticastSocket(const IpAddress& group,
-      const IpAddress& interface, RefType<SocketThreadPool> socketThreadPool)
+      const IpAddress& interface, Ref<SocketThreadPool> socketThreadPool)
       : m_group(group),
         m_interface(interface),
         m_socketThreadPool(socketThreadPool.Get()) {
@@ -220,12 +221,13 @@ namespace Network {
 
   inline void MulticastSocket::Reset() {
     m_socket.reset();
-    m_receiver.Reset();
-    m_sender.Reset();
+    m_receiver = std::nullopt;
+    m_sender = std::nullopt;
     m_socket = std::make_shared<Details::UdpSocketEntry>(
-      m_socketThreadPool->GetService(), boost::asio::ip::udp::v4());
-    m_receiver.Initialize(m_socket);
-    m_sender.Initialize(m_socket);
+      m_socketThreadPool->GetService(), m_socketThreadPool->GetService(),
+      boost::asio::ip::udp::v4());
+    m_receiver.emplace(m_socket);
+    m_sender.emplace(m_socket);
   }
 }
 }

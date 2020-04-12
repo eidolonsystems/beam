@@ -1,29 +1,29 @@
 #include <fstream>
 #include <iostream>
 #include <boost/functional/factory.hpp>
-#include <boost/functional/value_factory.hpp>
 #include <tclap/CmdLine.h>
+#include <Viper/MySql/Connection.hpp>
 #include "Beam/Codecs/NullDecoder.hpp"
 #include "Beam/Codecs/NullEncoder.hpp"
 #include "Beam/IO/SharedBuffer.hpp"
-#include "Beam/MySql/MySqlConfig.hpp"
 #include "Beam/Network/TcpServerSocket.hpp"
 #include "Beam/Serialization/BinaryReceiver.hpp"
 #include "Beam/Serialization/BinarySender.hpp"
 #include "Beam/ServiceLocator/ApplicationDefinitions.hpp"
 #include "Beam/ServiceLocator/AuthenticationServletAdapter.hpp"
 #include "Beam/Services/ServiceProtocolServletContainer.hpp"
+#include "Beam/Sql/MySqlConfig.hpp"
 #include "Beam/Threading/LiveTimer.hpp"
-#include "Beam/UidService/MySqlUidDataStore.hpp"
+#include "Beam/UidService/SqlUidDataStore.hpp"
 #include "Beam/UidService/UidServlet.hpp"
 #include "Beam/Utilities/ApplicationInterrupt.hpp"
+#include "Beam/Utilities/Expect.hpp"
 #include "Beam/Utilities/YamlConfig.hpp"
-#include "UidServer/Version.hpp"
+#include "Version.hpp"
 
 using namespace Beam;
 using namespace Beam::Codecs;
 using namespace Beam::IO;
-using namespace Beam::MySql;
 using namespace Beam::Network;
 using namespace Beam::Serialization;
 using namespace Beam::ServiceLocator;
@@ -34,10 +34,12 @@ using namespace boost;
 using namespace boost::posix_time;
 using namespace std;
 using namespace TCLAP;
+using namespace Viper;
 
 namespace {
   using UidServletContainer = ServiceProtocolServletContainer<
-    MetaAuthenticationServletAdapter<MetaUidServlet<MySqlUidDataStore>,
+    MetaAuthenticationServletAdapter<
+    MetaUidServlet<SqlUidDataStore<MySql::Connection>>,
     ApplicationServiceLocatorClient::Client*>, TcpServerSocket,
     BinarySender<SharedBuffer>, NullEncoder, std::shared_ptr<LiveTimer>>;
 
@@ -53,19 +55,19 @@ namespace {
     m_serviceName = Extract<string>(config, "service",
       UidService::SERVICE_NAME);
     m_interface = Extract<IpAddress>(config, "interface");
-    vector<IpAddress> addresses;
+    auto addresses = vector<IpAddress>();
     addresses.push_back(m_interface);
     m_addresses = Extract<vector<IpAddress>>(config, "addresses", addresses);
   }
 }
 
 int main(int argc, const char** argv) {
-  string configFile;
+  auto configFile = string();
   try {
-    CmdLine cmd{"", ' ', "1.0-r" UID_SERVER_VERSION
-      "\nCopyright (C) 2009 Eidolon Systems Ltd."};
-    ValueArg<string> configArg{"c", "config", "Configuration file", false,
-      "config.yml", "path"};
+    auto cmd = CmdLine("", ' ', "1.0-r" UID_SERVER_VERSION
+      "\nCopyright (C) 2020 Spire Trading Inc.");
+    auto configArg = ValueArg<string>("c", "config", "Configuration file",
+      false, "config.yml", "path");
     cmd.add(configArg);
     cmd.parse(argc, argv);
     configFile = configArg.getValue();
@@ -73,35 +75,22 @@ int main(int argc, const char** argv) {
     cerr << "error: " << e.error() << " for arg " << e.argId() << endl;
     return -1;
   }
-  YAML::Node config;
-  try {
-    ifstream configStream{configFile.c_str()};
-    if(!configStream.good()) {
-      cerr << configFile << " not found." << endl;
-      return -1;
-    }
-    YAML::Parser configParser{configStream};
-    configParser.GetNextDocument(config);
-  } catch(const YAML::ParserException& e) {
-    cerr << "Invalid YAML at line " << (e.mark.line + 1) << ", " << "column " <<
-      (e.mark.column + 1) << ": " << e.msg << endl;
-    return -1;
-  }
-  MySqlConfig mySqlConfig;
+  auto config = Require(LoadFile, configFile);
+  auto mySqlConfig = MySqlConfig();
   try {
     mySqlConfig = MySqlConfig::Parse(GetNode(config, "data_store"));
   } catch(const std::exception& e) {
     cerr << "Error parsing section 'data_store': " << e.what() << endl;
     return -1;
   }
-  ServerConnectionInitializer serverConnectionInitializer;
+  auto serverConnectionInitializer = ServerConnectionInitializer();
   try {
     serverConnectionInitializer.Initialize(GetNode(config, "server"));
   } catch(const std::exception& e) {
     cerr << "Error parsing section 'server': " << e.what() << endl;
     return -1;
   }
-  ServiceLocatorClientConfig serviceLocatorClientConfig;
+  auto serviceLocatorClientConfig = ServiceLocatorClientConfig();
   try {
     serviceLocatorClientConfig = ServiceLocatorClientConfig::Parse(
       GetNode(config, "service_locator"));
@@ -109,9 +98,9 @@ int main(int argc, const char** argv) {
     cerr << "Error parsing section 'service_locator': " << e.what() << endl;
     return -1;
   }
-  SocketThreadPool socketThreadPool;
-  TimerThreadPool timerThreadPool;
-  ApplicationServiceLocatorClient serviceLocatorClient;
+  auto socketThreadPool = SocketThreadPool();
+  auto timerThreadPool = TimerThreadPool();
+  auto serviceLocatorClient = ApplicationServiceLocatorClient();
   try {
     serviceLocatorClient.BuildSession(serviceLocatorClientConfig.m_address,
       Ref(socketThreadPool), Ref(timerThreadPool));
@@ -122,11 +111,13 @@ int main(int argc, const char** argv) {
     cerr << "Error logging in: " << e.what() << endl;
     return -1;
   }
-  UidServletContainer server(Initialize(serviceLocatorClient.Get(),
-    Initialize(Initialize(mySqlConfig.m_address, mySqlConfig.m_schema,
-    mySqlConfig.m_username, mySqlConfig.m_password))), Initialize(
+  auto mySqlConnection = std::make_unique<MySql::Connection>(
+    mySqlConfig.m_address.GetHost(), mySqlConfig.m_address.GetPort(),
+    mySqlConfig.m_username, mySqlConfig.m_password, mySqlConfig.m_schema);
+  auto server = UidServletContainer(Initialize(serviceLocatorClient.Get(),
+    Initialize(std::move(mySqlConnection))), Initialize(
     serverConnectionInitializer.m_interface, Ref(socketThreadPool)),
-    std::bind(factory<std::shared_ptr<LiveTimer>>{}, seconds{10},
+    std::bind(factory<std::shared_ptr<LiveTimer>>(), seconds(10),
     Ref(timerThreadPool)));
   try {
     server.Open();
@@ -135,7 +126,7 @@ int main(int argc, const char** argv) {
     return -1;
   }
   try {
-    JsonObject service;
+    auto service = JsonObject();
     service["addresses"] = ToString(serverConnectionInitializer.m_addresses);
     serviceLocatorClient->Register(serverConnectionInitializer.m_serviceName,
       service);

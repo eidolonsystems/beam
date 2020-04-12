@@ -1,28 +1,22 @@
 #include "Beam/Python/Yaml.hpp"
 #include <fstream>
-#include "Beam/Python/BoostPython.hpp"
 #include "Beam/Utilities/YamlConfig.hpp"
 
 using namespace Beam;
 using namespace Beam::Python;
-using namespace boost;
-using namespace boost::python;
-using namespace std;
+using namespace pybind11;
 
 namespace {
-  YAML::Node* LoadYamlFile(const string& path) {
-    ifstream yamlStream{path.c_str()};
-    if(!yamlStream.good()) {
-      throw runtime_error{"File not found."};
-    }
-    YAML::Parser yamlParser{yamlStream};
-    auto node = make_unique<YAML::Node>();
-    yamlParser.GetNextDocument(*node);
+  auto LoadYamlFile(const std::string& path) {
+    auto node = std::make_unique<YAML::Node>(LoadFile(path));
     return node.release();
   }
 }
 
-void Beam::Python::ExportYaml() {
-  class_<YAML::Node, boost::noncopyable>("YamlNode", no_init);
-  def("load_yaml", LoadYamlFile, return_value_policy<manage_new_object>());
+void Beam::Python::ExportYaml(pybind11::module& module) {
+  class_<YAML::Node>(module, "YamlNode");
+  module.def("load_yaml",
+    [] (const std::string& path) {
+      return new YAML::Node(LoadFile(path));
+    }, return_value_policy::take_ownership);
 }

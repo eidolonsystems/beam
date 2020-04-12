@@ -1,10 +1,10 @@
 #ifndef BEAM_ROUTINE_HPP
 #define BEAM_ROUTINE_HPP
+#include <atomic>
 #include <cassert>
 #include <cstdint>
 #include <tuple>
 #include <vector>
-#include <boost/atomic/atomic.hpp>
 #include <boost/noncopyable.hpp>
 #include "Beam/Routines/Async.hpp"
 #include "Beam/Routines/RoutineId.hpp"
@@ -19,15 +19,10 @@
 namespace Beam {
 namespace Routines {
 namespace Details {
-#ifdef _MSC_VER
-  #define BEAM_THREADLOCAL __declspec(thread)
-#else
-  #define BEAM_THREADLOCAL thread_local
-#endif
 #if !defined(BEAM_BUILD_DLL) && !defined(BEAM_USE_DLL)
   template<typename T>
   struct CurrentRoutineGlobal {
-    static BEAM_THREADLOCAL Routine* m_value;
+    static thread_local Routine* m_value;
 
     static Routine*& GetInstance() {
       return m_value;
@@ -35,22 +30,38 @@ namespace Details {
   };
 
   template<typename T>
-  BEAM_THREADLOCAL Routine* CurrentRoutineGlobal<T>::m_value;
+  thread_local Routine* CurrentRoutineGlobal<T>::m_value;
 
-#elif defined(BEAM_BUILD_DLL)
   template<typename T>
-  struct CurrentRoutineGlobal {
+  struct NextId {
+    static std::atomic_uint64_t m_value;
+
+    static std::atomic_uint64_t& GetInstance() {
+      return m_value;
+    }
+  };
+
+  template<typename T>
+  std::atomic_uint64_t NextId<T>::m_value;
+
+#else
+  template<typename T>
+  struct BEAM_EXPORT_DLL CurrentRoutineGlobal {
     static Routine*& GetInstance() {
-      static BEAM_THREADLOCAL Routine* value;
+      static thread_local Routine* value;
       return value;
     }
   };
 
-#elif defined(BEAM_USE_DLL)
   template<typename T>
-  struct CurrentRoutineGlobal {
-    static Routine*& GetInstance();
+  struct BEAM_EXPORT_DLL NextId {
+    static std::atomic_uint64_t& GetInstance() {
+      static std::atomic_uint64_t value;
+      return value;
+    }
   };
+  BEAM_EXTERN template struct BEAM_EXPORT_DLL CurrentRoutineGlobal<void>;
+  BEAM_EXTERN template struct BEAM_EXPORT_DLL NextId<void>;
 #endif
 }
 
@@ -191,7 +202,7 @@ namespace Details {
   }
 
   inline Routine::Routine()
-      : m_state{State::PENDING} {}
+    : m_state(State::PENDING) {}
 
   inline Routine::~Routine() {
     Threading::With(m_waitResults,

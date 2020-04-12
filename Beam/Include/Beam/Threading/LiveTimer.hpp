@@ -26,7 +26,7 @@ namespace Threading {
                expired slot.
       */
       LiveTimer(boost::posix_time::time_duration interval,
-        RefType<TimerThreadPool> timerThreadPool);
+        Ref<TimerThreadPool> timerThreadPool);
 
       ~LiveTimer();
 
@@ -48,7 +48,7 @@ namespace Threading {
   };
 
   inline LiveTimer::LiveTimer(boost::posix_time::time_duration interval,
-    RefType<TimerThreadPool> timerThreadPool)
+    Ref<TimerThreadPool> timerThreadPool)
       : m_interval(interval),
         m_deadLineTimer(timerThreadPool->GetService()),
         m_isPending(false) {}
@@ -67,7 +67,7 @@ namespace Threading {
     m_deadLineTimer.async_wait(
       [=] (const boost::system::error_code& error) {
         boost::lock_guard<Mutex> lock(m_mutex);
-        if(error != 0) {
+        if(error) {
           m_publisher.Push(Timer::Result::CANCELED);
         } else {
           m_publisher.Push(Timer::Result::EXPIRED);

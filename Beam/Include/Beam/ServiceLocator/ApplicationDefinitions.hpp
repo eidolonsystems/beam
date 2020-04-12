@@ -1,10 +1,10 @@
 #ifndef BEAM_SERVICELOCATORAPPLICATIONDEFINITIONS_HPP
 #define BEAM_SERVICELOCATORAPPLICATIONDEFINITIONS_HPP
+#include <optional>
 #include <string>
 #include "Beam/IO/SharedBuffer.hpp"
 #include "Beam/Network/IpAddress.hpp"
 #include "Beam/Network/TcpSocketChannel.hpp"
-#include "Beam/Pointers/DelayPtr.hpp"
 #include "Beam/Pointers/Ref.hpp"
 #include "Beam/Serialization/BinaryReceiver.hpp"
 #include "Beam/Serialization/BinarySender.hpp"
@@ -18,12 +18,6 @@
 
 namespace Beam {
 namespace ServiceLocator {
-namespace Details {
-  using ServiceLocatorClientSessionBuilder =
-    Services::ServiceProtocolClientBuilder<Services::MessageProtocol<
-    std::unique_ptr<Network::TcpSocketChannel>,
-    Serialization::BinarySender<IO::SharedBuffer>>, Threading::LiveTimer>;
-}
 
   /*! \struct ServiceLocatorClientConfig
       \brief Stores the configuration needed to connect a ServiceLocatorClient.
@@ -53,9 +47,14 @@ namespace Details {
   class ApplicationServiceLocatorClient : private boost::noncopyable {
     public:
 
+      //! The type of session builder used by the client.
+      using SessionBuilder = Services::ServiceProtocolClientBuilder<
+        Services::MessageProtocol<std::unique_ptr<Network::TcpSocketChannel>,
+        Serialization::BinarySender<IO::SharedBuffer>>, Threading::LiveTimer>;
+
+
       //! Defines the standard ServiceLocatorClient used for applications.
-      using Client = ServiceLocatorClient<
-        Details::ServiceLocatorClientSessionBuilder>;
+      using Client = ServiceLocatorClient<SessionBuilder>;
 
       //! Constructs an ApplicationServiceLocatorClient.
       ApplicationServiceLocatorClient() = default;
@@ -68,8 +67,8 @@ namespace Details {
         \param timerThreadPool The TimerThreadPool used for heartbeats.
       */
       void BuildSession(const Network::IpAddress& address,
-        RefType<Network::SocketThreadPool> socketThreadPool,
-        RefType<Threading::TimerThreadPool> timerThreadPool);
+        Ref<Network::SocketThreadPool> socketThreadPool,
+        Ref<Threading::TimerThreadPool> timerThreadPool);
 
       //! Returns a reference to the Client.
       Client& operator *();
@@ -90,7 +89,7 @@ namespace Details {
       const Client* Get() const;
 
     private:
-      DelayPtr<Client> m_client;
+      std::optional<Client> m_client;
   };
 
   inline ServiceLocatorClientConfig ServiceLocatorClientConfig::Parse(
@@ -104,16 +103,16 @@ namespace Details {
 
   inline void ApplicationServiceLocatorClient::BuildSession(
       const Network::IpAddress& address,
-      RefType<Network::SocketThreadPool> socketThreadPool,
-      RefType<Threading::TimerThreadPool> timerThreadPool) {
-    if(m_client.IsInitialized()) {
+      Ref<Network::SocketThreadPool> socketThreadPool,
+      Ref<Threading::TimerThreadPool> timerThreadPool) {
+    if(m_client.has_value()) {
       m_client->Close();
-      m_client.Reset();
+      m_client = std::nullopt;
     }
     auto socketThreadPoolHandle = socketThreadPool.Get();
     auto timerThreadPoolHandle = timerThreadPool.Get();
     auto isConnected = false;
-    Details::ServiceLocatorClientSessionBuilder sessionBuilder(
+    SessionBuilder sessionBuilder(
       [=] () mutable {
         if(isConnected) {
           BOOST_THROW_EXCEPTION(IO::NotConnectedException());
@@ -126,17 +125,17 @@ namespace Details {
         return std::make_unique<Threading::LiveTimer>(
           boost::posix_time::seconds(10), Ref(*timerThreadPoolHandle));
       });
-    m_client.Initialize(sessionBuilder);
+    m_client.emplace(sessionBuilder);
   }
 
   inline ApplicationServiceLocatorClient::Client&
       ApplicationServiceLocatorClient::operator *() {
-    return m_client.Get();
+    return *m_client;
   }
 
   inline const ApplicationServiceLocatorClient::Client&
       ApplicationServiceLocatorClient::operator *() const {
-    return m_client.Get();
+    return *m_client;
   }
 
   inline ApplicationServiceLocatorClient::Client*

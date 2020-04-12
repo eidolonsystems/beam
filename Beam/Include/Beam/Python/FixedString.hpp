@@ -1,55 +1,62 @@
-#ifndef BEAM_PYTHONFIXEDSTRING_HPP
-#define BEAM_PYTHONFIXEDSTRING_HPP
-#include "Beam/Python/BoostPython.hpp"
+#ifndef BEAM_PYTHON_FIXED_STRING_HPP
+#define BEAM_PYTHON_FIXED_STRING_HPP
+#include <pybind11/pybind11.h>
+#include "Beam/Python/BasicTypeCaster.hpp"
 #include "Beam/Utilities/FixedString.hpp"
 
-namespace Beam {
-namespace Python {
+namespace Beam::Python {
 namespace Details {
-  template<std::size_t N>
-  struct FixedStringToPython {
-    static PyObject* convert(const FixedString<N>& value) {
-      auto result = boost::python::object{value.GetData()};
-      return boost::python::incref(result.ptr());
-    }
+  template<unsigned... D>
+  struct ToChars {
+    static constexpr char value[sizeof...(D) + 1] = {('0' + D)..., 0};
   };
 
-  template<std::size_t N>
-  struct FixedStringFromPythonConverter {
-    static void* convertible(PyObject* object) {
-      if(PyString_Check(object)) {
-        return object;
-      }
-      return nullptr;
-    }
+  template<unsigned R, unsigned... D>
+  struct Explode : Explode<R / 10, R % 10, D...> {};
 
-    static void construct(PyObject* object,
-        boost::python::converter::rvalue_from_python_stage1_data* data) {
-      auto storage = reinterpret_cast<boost::python::converter::
-        rvalue_from_python_storage<FixedString<N>>*>(data)->storage.bytes;
-      auto value = PyString_AsString(object);
-      new(storage) FixedString<N>{value};
-      data->convertible = storage; 
-    }
-  };
+  template<unsigned... D>
+  struct Explode<0, D...> : ToChars<D...> {};
+
+  template<unsigned N>
+  struct FixedStringName : Explode<N> {};
 }
 
-  //! Exports a FixedString to python.
-  template<std::size_t N>
-  void ExportFixedString() {
-    auto typeId = boost::python::type_id<FixedString<N>>();
-    auto registration = boost::python::converter::registry::query(typeId);
-    if(registration != nullptr && registration->m_to_python != nullptr) {
-      return;
+  /**
+   * Implements a type caster for FixedStrings.
+   * @param <N> The size of the FixedString to cast.
+   */
+  template<typename T>
+  struct FixedStringTypeCaster : BasicTypeCaster<T> {
+    using Type = T;
+    static constexpr auto name = pybind11::detail::_("FixedString[") +
+      pybind11::detail::_(Details::FixedStringName<Type::SIZE>::value) +
+      pybind11::detail::_("]");
+    static pybind11::handle cast(const Type& value,
+      pybind11::return_value_policy policy, pybind11::handle parent);
+    bool load(pybind11::handle source, bool);
+    using BasicTypeCaster<T>::m_value;
+  };
+
+  template<typename T>
+  pybind11::handle FixedStringTypeCaster<T>::cast(const Type& value,
+      pybind11::return_value_policy policy, pybind11::handle parent) {
+    return pybind11::cast(value.GetData()).release();
+  }
+
+  template<typename T>
+  bool FixedStringTypeCaster<T>::load(pybind11::handle source, bool) {
+    if(!PyUnicode_Check(source.ptr())) {
+      return false;
     }
-    boost::python::to_python_converter<FixedString<N>,
-      Details::FixedStringToPython<N>>();
-    boost::python::converter::registry::push_back(
-      &Details::FixedStringFromPythonConverter<N>::convertible,
-      &Details::FixedStringFromPythonConverter<N>::construct,
-      boost::python::type_id<FixedString<N>>());
+    m_value.emplace(PyUnicode_AsUTF8(source.ptr()));
+    return true;
   }
 }
+
+namespace pybind11::detail {
+  template<std::size_t N>
+  struct type_caster<Beam::FixedString<N>> :
+    Beam::Python::FixedStringTypeCaster<Beam::FixedString<N>> {};
 }
 
 #endif

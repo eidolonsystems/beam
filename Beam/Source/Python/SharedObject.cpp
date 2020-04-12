@@ -3,37 +3,33 @@
 
 using namespace Beam;
 using namespace Beam::Python;
-using namespace boost;
-using namespace boost::python;
-using namespace std;
+using namespace pybind11;
 
 namespace {
   struct ObjectDeleter {
-    void operator ()(boost::python::object* object) const {
-      GilLock gil;
-      boost::lock_guard<GilLock> lock{gil};
+    void operator ()(pybind11::object* object) const {
+      auto lock = GilLock();
       delete object;
     }
   };
-
-  struct SharedObjectToPython {
-    static PyObject* convert(const SharedObject& object) {
-      return boost::python::incref(object->ptr());
-    }
-  };
 }
 
-void Beam::Python::ExportSharedObject() {
-  boost::python::to_python_converter<SharedObject, SharedObjectToPython>();
-}
+SharedObject::SharedObject(pybind11::object object)
+  : m_object(new pybind11::object(std::move(object)), ObjectDeleter()) {}
 
-SharedObject::SharedObject(boost::python::object object)
-  : m_object{new boost::python::object{std::move(object)}, ObjectDeleter{}} {}
-
-boost::python::object& SharedObject::operator *() const {
+pybind11::object& SharedObject::operator *() const {
   return *m_object;
 }
 
-boost::python::object* SharedObject::operator ->() const {
+pybind11::object* SharedObject::operator ->() const {
   return m_object.get();
+}
+
+pybind11::handle SharedObjectTypeCaster::cast(const SharedObject& value,
+    pybind11::return_value_policy policy, pybind11::handle parent) {
+  return value->inc_ref();
+}
+
+bool SharedObjectTypeCaster::load(pybind11::handle source, bool) {
+  return false;
 }

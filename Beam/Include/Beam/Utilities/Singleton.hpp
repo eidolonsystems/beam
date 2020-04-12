@@ -1,25 +1,28 @@
 #ifndef BEAM_SINGLETON_HPP
 #define BEAM_SINGLETON_HPP
-#include <boost/noncopyable.hpp>
+#include "Beam/Utilities/DllExport.hpp"
 
 namespace Beam {
 
-  /*! \class Singleton
-      \brief Implements the Singleton pattern.
-   */
+  /** Implements the Singleton pattern. */
   template<typename T>
-  class Singleton : private boost::noncopyable {
+  class BEAM_EXPORT_DLL Singleton {
     public:
+      using Type = T;
 
       //! Returns the singleton instance.
-      static T& GetInstance();
-  };
+      static Type& GetInstance() {
+        static auto singleton = Type();
+        return singleton;
+      }
 
-  template<typename T>
-  T& Singleton<T>::GetInstance() {
-    static T singleton;
-    return singleton;
-  }
+    protected:
+      Singleton() = default;
+
+    private:
+      Singleton(const Singleton&) = delete;
+      Singleton& operator =(const Singleton&) = delete;
+  };
 }
 
 #endif

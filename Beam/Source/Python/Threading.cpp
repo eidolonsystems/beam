@@ -1,12 +1,11 @@
 #include "Beam/Python/Threading.hpp"
-#include "Beam/Python/BoostPython.hpp"
-#include "Beam/Python/Enum.hpp"
-#include "Beam/Python/Exception.hpp"
-#include "Beam/Python/PythonBindings.hpp"
+#include "Beam/Python/Beam.hpp"
 #include "Beam/Python/Queues.hpp"
 #include "Beam/Python/ToPythonTimer.hpp"
-#include "Beam/Python/UniquePtr.hpp"
+#include "Beam/Threading/ConditionVariable.hpp"
 #include "Beam/Threading/LiveTimer.hpp"
+#include "Beam/Threading/Mutex.hpp"
+#include "Beam/Threading/RecursiveMutex.hpp"
 #include "Beam/Threading/TimeoutException.hpp"
 #include "Beam/Threading/TriggerTimer.hpp"
 #include "Beam/Threading/VirtualTimer.hpp"
@@ -14,106 +13,127 @@
 using namespace Beam;
 using namespace Beam::Python;
 using namespace Beam::Threading;
-using namespace boost;
 using namespace boost::posix_time;
-using namespace boost::python;
-using namespace std;
+using namespace pybind11;
 
 namespace {
-  struct FromPythonTimer : VirtualTimer, wrapper<VirtualTimer> {
-    virtual void Start() override final {
-      get_override("start")();
+  struct TrampolineTimer final : VirtualTimer {
+    void Start() override {
+      PYBIND11_OVERLOAD_PURE_NAME(void, VirtualTimer, "start", Start);
     }
 
-    virtual void Cancel() override final {
-      get_override("cancel")();
+    void Cancel() override {
+      PYBIND11_OVERLOAD_PURE_NAME(void, VirtualTimer, "cancel", Cancel);
     }
 
-    virtual void Wait() override final {
-      get_override("wait")();
+    void Wait() override {
+      PYBIND11_OVERLOAD_PURE_NAME(void, VirtualTimer, "wait", Wait);
     }
 
-    virtual const Publisher<Timer::Result>&
-        GetPublisher() const override final {
-      return *static_cast<const Publisher<Timer::Result>*>(
-        get_override("get_publisher")());
+    const Publisher<Timer::Result>& GetPublisher() const override {
+      PYBIND11_OVERLOAD_PURE_NAME(const Publisher<Timer::Result>&, VirtualTimer,
+        "get_publisher", GetPublisher);
     }
   };
-
-  auto BuildLiveTimer(time_duration interval) {
-    return MakeToPythonTimer(std::make_unique<LiveTimer>(interval,
-      Ref(*GetTimerThreadPool())));
-  }
-
-  auto BuildTriggerTimer() {
-    return MakeToPythonTimer(std::make_unique<TriggerTimer>());
-  }
-
-  void WrapperTimerTrigger(ToPythonTimer<TriggerTimer>& timer) {
-    GilRelease gil;
-    boost::lock_guard<GilRelease> lock{gil};
-    timer.GetTimer().Trigger();
-  }
-
-  void WrapperTimerFail(ToPythonTimer<TriggerTimer>& timer) {
-    GilRelease gil;
-    boost::lock_guard<GilRelease> lock{gil};
-    timer.GetTimer().Fail();
-  }
 }
 
-BEAM_DEFINE_PYTHON_POINTER_LINKER(FromPythonTimer);
-BEAM_DEFINE_PYTHON_POINTER_LINKER(Publisher<Timer::Result>);
-BEAM_DEFINE_PYTHON_POINTER_LINKER(VirtualTimer);
-
-void Beam::Python::ExportLiveTimer() {
-  class_<ToPythonTimer<LiveTimer>, boost::noncopyable, bases<VirtualTimer>>(
-      "LiveTimer", no_init)
-    .def("__init__", make_constructor(&BuildLiveTimer));
-}
-
-void Beam::Python::ExportThreading() {
-  string nestedName = extract<string>(scope().attr("__name__") +
-    ".threading");
-  object nestedModule{handle<>(
-    borrowed(PyImport_AddModule(nestedName.c_str())))};
-  scope().attr("threading") = nestedModule;
-  scope parent = nestedModule;
-  ExportTimer();
-  ExportLiveTimer();
-  ExportTriggerTimer();
-  ExportException<TimeoutException, std::runtime_error>("TimeoutException")
+void Beam::Python::ExportConditionVariable(module& module) {
+  class_<ConditionVariable>(module, "ConditionVariable")
     .def(init<>())
-    .def(init<const string&>());
+    .def("wait",
+      [] (ConditionVariable& self, Mutex& m) {
+        auto lock = std::unique_lock(m, std::try_to_lock);
+        self.wait(lock);
+      }, call_guard<GilRelease>())
+    .def("notify_one", &ConditionVariable::notify_one, call_guard<GilRelease>())
+    .def("notify_all", &ConditionVariable::notify_all,
+      call_guard<GilRelease>());
 }
 
-void Beam::Python::ExportTimer() {
-  {
-    scope outer = class_<FromPythonTimer, std::shared_ptr<FromPythonTimer>,
-      boost::noncopyable>("Timer")
-      .def("start", pure_virtual(&VirtualTimer::Start))
-      .def("cancel", pure_virtual(&VirtualTimer::Cancel))
-      .def("wait", pure_virtual(&VirtualTimer::Wait))
-      .def("get_publisher", pure_virtual(&VirtualTimer::GetPublisher),
-        return_internal_reference<>());
-    enum_<Timer::Result::Type>("Result")
-      .value("NONE", Timer::Result::NONE)
-      .value("EXPIRED", Timer::Result::EXPIRED)
-      .value("CANCELED", Timer::Result::CANCELED)
-      .value("FAIL", Timer::Result::FAIL);
-  }
-  register_ptr_to_python<std::shared_ptr<VirtualTimer>>();
-  implicitly_convertible<std::shared_ptr<FromPythonTimer>,
-    std::shared_ptr<VirtualTimer>>();
-  ExportUniquePtr<VirtualTimer>();
-  ExportEnum<Timer::Result>();
-  ExportPublisher<Timer::Result>("TimerResultPublisher");
+void Beam::Python::ExportLiveTimer(module& module) {
+  class_<ToPythonTimer<LiveTimer>, VirtualTimer,
+      std::shared_ptr<ToPythonTimer<LiveTimer>>>(module, "LiveTimer")
+    .def(init(
+      [] (time_duration interval) {
+        return MakeToPythonTimer(std::make_unique<LiveTimer>(interval,
+          Ref(*GetTimerThreadPool())));
+      }));
 }
 
-void Beam::Python::ExportTriggerTimer() {
-  class_<ToPythonTimer<TriggerTimer>, boost::noncopyable, bases<VirtualTimer>>(
-      "TriggerTimer", no_init)
-    .def("__init__", make_constructor(&BuildTriggerTimer))
-    .def("trigger", &WrapperTimerTrigger)
-    .def("fail", &WrapperTimerFail);
+void Beam::Python::ExportMutex(module& module) {
+  class_<Mutex>(module, "Mutex")
+    .def(init<>())
+    .def("lock", &Mutex::lock, call_guard<GilRelease>())
+    .def("try_lock", &Mutex::try_lock, call_guard<GilRelease>())
+    .def("unlock", &Mutex::unlock, call_guard<GilRelease>())
+    .def("__enter__",
+      [] (object& self) {
+        self.attr("lock")();
+        return self;
+      })
+    .def("__exit__",
+      [] (object& self) {
+        self.attr("unlock")();
+      });
+}
+
+void Beam::Python::ExportRecursiveMutex(module& module) {
+  class_<RecursiveMutex>(module, "RecursiveMutex")
+    .def(init<>())
+    .def("lock", &RecursiveMutex::lock, call_guard<GilRelease>())
+    .def("try_lock", &RecursiveMutex::try_lock, call_guard<GilRelease>())
+    .def("unlock", &RecursiveMutex::unlock, call_guard<GilRelease>())
+    .def("__enter__",
+      [] (object& self) {
+        self.attr("lock")();
+        return self;
+      })
+    .def("__exit__",
+      [] (object& self) {
+        self.attr("unlock")();
+      });
+}
+
+void Beam::Python::ExportThreading(module& module) {
+  auto submodule = module.def_submodule("threading");
+  ExportConditionVariable(submodule);
+  ExportMutex(submodule);
+  ExportRecursiveMutex(submodule);
+  ExportTimer(submodule);
+  ExportLiveTimer(submodule);
+  ExportTriggerTimer(submodule);
+  register_exception<TimeoutException>(submodule, "TimeoutException");
+}
+
+void Beam::Python::ExportTimer(module& module) {
+  auto outer = class_<VirtualTimer, TrampolineTimer,
+      std::shared_ptr<VirtualTimer>>(module, "Timer")
+    .def("start", &VirtualTimer::Start)
+    .def("cancel", &VirtualTimer::Cancel)
+    .def("wait", &VirtualTimer::Wait)
+    .def("get_publisher", &VirtualTimer::GetPublisher,
+      return_value_policy::reference_internal);
+  enum_<Timer::Result::Type>(outer, "Result")
+    .value("NONE", Timer::Result::NONE)
+    .value("EXPIRED", Timer::Result::EXPIRED)
+    .value("CANCELED", Timer::Result::CANCELED)
+    .value("FAIL", Timer::Result::FAIL);
+  ExportQueueSuite<Timer::Result>(module, "TimerResult");
+}
+
+void Beam::Python::ExportTriggerTimer(module& module) {
+  class_<ToPythonTimer<TriggerTimer>, VirtualTimer,
+      std::shared_ptr<ToPythonTimer<TriggerTimer>>>(module, "TriggerTimer")
+    .def(init(
+      [] {
+        return MakeToPythonTimer(std::make_unique<TriggerTimer>());
+      }))
+    .def("trigger",
+      [] (ToPythonTimer<TriggerTimer>& self) {
+        self.GetTimer().Trigger();
+      })
+    .def("fail",
+      [] (ToPythonTimer<TriggerTimer>& self) {
+        self.GetTimer().Fail();
+      });
 }
