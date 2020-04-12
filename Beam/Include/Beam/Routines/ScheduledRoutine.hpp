@@ -19,16 +19,13 @@
 #include "Beam/Utilities/ReportException.hpp"
 #include "Beam/Utilities/StackPrint.hpp"
 
-namespace Beam {
-namespace Routines {
+namespace Beam::Routines {
 
-  /*! \class ScheduledRoutine
-      \brief A Routine that executes within a Scheduler.
-   */
+  /** Implements a Routine that executes within a Scheduler. */
   class ScheduledRoutine : public Routine {
     public:
 
-      //! Returns the Scheduler this Routine runs through.
+      /** Returns the Scheduler this Routine runs through. */
       Details::Scheduler& GetScheduler() const;
 
       //! Continues execution of this Routine from its last defer point or from
@@ -54,17 +51,19 @@ namespace Routines {
 
     protected:
 
-      //! Constructs a ScheduledRoutine.
-      /*!
-        \param stackSize The size of the stack to allocate.
-        \param scheduler The Scheduler this Routine will execute through.
-      */
+      /**
+       * Constructs a ScheduledRoutine.
+       * @param stackSize The size of the stack to allocate.
+       * @param scheduler The Scheduler this Routine will execute through.
+       */
       ScheduledRoutine(std::size_t stackSize,
         Ref<Details::Scheduler> scheduler);
 
     private:
       friend class Details::Scheduler;
       mutable boost::mutex m_mutex;
+      bool m_isPendingResume;
+      std::size_t m_stackSize;
       Details::Scheduler* m_scheduler;
       boost::context::continuation m_continuation;
       boost::context::continuation m_parent;
@@ -102,7 +101,8 @@ namespace Routines {
         throw RoutineException{"Routine aborted."};
       }
       SetState(State::RUNNING);
-      m_continuation = boost::context::callcc(
+      m_continuation = boost::context::callcc(std::allocator_arg,
+        boost::context::fixedsize_stack(m_stackSize),
         [=] (boost::context::continuation&& parent) {
           return InitializeRoutine(std::move(parent));
         });
@@ -166,7 +166,9 @@ namespace Routines {
 
   inline ScheduledRoutine::ScheduledRoutine(std::size_t stackSize,
     Ref<Details::Scheduler> scheduler)
-    : m_scheduler(scheduler.Get()) {}
+    : m_isPendingResume(false),
+      m_stackSize(stackSize),
+      m_scheduler(scheduler.Get()) {}
 
   inline boost::context::continuation ScheduledRoutine::InitializeRoutine(
       boost::context::continuation&& parent) {
@@ -186,7 +188,6 @@ namespace Routines {
   inline void ScheduledRoutine::Bind(std::shared_ptr<ScheduledRoutine> self) {
     m_self = std::move(self);
   }
-}
 }
 
 #endif

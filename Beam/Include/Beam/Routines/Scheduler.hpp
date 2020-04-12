@@ -12,7 +12,11 @@
 #include "Beam/Utilities/Singleton.hpp"
 
 #ifndef BEAM_SCHEDULER_DEFAULT_STACK_SIZE
-  #define BEAM_SCHEDULER_DEFAULT_STACK_SIZE 65536
+  #ifdef _WIN32
+    #define BEAM_SCHEDULER_DEFAULT_STACK_SIZE 131072
+  #else
+    #define BEAM_SCHEDULER_DEFAULT_STACK_SIZE 1048576
+  #endif
 #endif
 
 namespace Beam {
@@ -34,14 +38,6 @@ namespace Details {
       Scheduler();
 
       ~Scheduler();
-
-      //! Spawns a Routine from a callable object.
-      /*!
-        \param f The callable object to run within the Routine.
-        \return A unique ID used to identify the Routine.
-      */
-      template<typename F>
-      Routine::Id Spawn(F&& f);
 
       //! Spawns a Routine from a callable object.
       /*!
@@ -85,11 +81,6 @@ namespace Details {
 
   inline Scheduler::~Scheduler() {
     Stop();
-  }
-
-  template<typename F>
-  Routine::Id Scheduler::Spawn(F&& f) {
-    return Spawn(std::forward<F>(f), DEFAULT_STACK_SIZE);
   }
 
   template<typename F>
@@ -150,14 +141,33 @@ namespace Details {
 }
 
   template<typename F>
-  Routine::Id Spawn(F&& f) {
-    return Details::Scheduler::GetInstance().Spawn(std::forward<F>(f));
-  }
-
-  template<typename F>
   Routine::Id Spawn(F&& f, std::size_t stackSize) {
     return Details::Scheduler::GetInstance().Spawn(std::forward<F>(f),
       stackSize);
+  }
+
+  template<typename F>
+  Routine::Id Spawn(F&& f) {
+    return Spawn(std::forward<F>(f), Details::Scheduler::DEFAULT_STACK_SIZE);
+  }
+
+  template<typename F>
+  Routine::Id Spawn(F&& f, std::size_t stackSize,
+      Eval<std::decay_t<decltype(f())>> result) {
+    return Spawn(
+      [f = std::forward<F>(f), result = std::move(result)] {
+        try {
+          result.SetResult(f());
+        } catch(...) {
+          result.SetException(std::current_exception());
+        }
+      }, stackSize);
+  }
+
+  template<typename F>
+  Routine::Id Spawn(F&& f, Eval<std::decay_t<decltype(f())>> result) {
+    return Spawn(std::forward<F>(f), Details::Scheduler::DEFAULT_STACK_SIZE,
+      std::move(result));
   }
 
   inline void ScheduledRoutine::Resume() {

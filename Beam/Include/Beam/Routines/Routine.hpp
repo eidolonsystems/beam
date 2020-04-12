@@ -145,12 +145,6 @@ namespace Details {
       Threading::Sync<WaitResults> m_waitResults;
   };
 
-  template<typename F>
-  Routine::Id Spawn(F&& f);
-
-  template<typename F>
-  Routine::Id Spawn(F&& f, std::size_t stackSize);
-
   //! Returns the currently executing Routine.
   Routine& GetCurrentRoutine();
 
