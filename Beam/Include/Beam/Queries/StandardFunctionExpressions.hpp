@@ -8,7 +8,6 @@
 #include <boost/mpl/copy_if.hpp>
 #include <boost/mpl/list.hpp>
 #include <boost/mpl/transform.hpp>
-#include "Beam/Pointers/UniquePtr.hpp"
 #include "Beam/Queries/FunctionExpression.hpp"
 #include "Beam/Queries/Queries.hpp"
 #include "Beam/Queries/StandardDataTypes.hpp"
@@ -117,13 +116,12 @@ namespace Details {
       }
     };
 
-    typedef boost::mpl::list<
-      boost::mpl::vector<int, int>,
+    using SupportedTypes = boost::mpl::list<boost::mpl::vector<int, int>,
       boost::mpl::vector<double, double>,
       boost::mpl::vector<boost::posix_time::time_duration,
         boost::posix_time::time_duration>,
       boost::mpl::vector<boost::posix_time::ptime,
-        boost::posix_time::time_duration>> SupportedTypes;
+        boost::posix_time::time_duration>>;
   };
 
   /*! \struct EqualsExpressionTranslator
@@ -140,11 +138,11 @@ namespace Details {
 
     template<typename T>
     struct MakeSignature {
-      typedef typename boost::mpl::vector<T, T, bool>::type type;
+      using type = typename boost::mpl::vector<T, T, bool>::type;
     };
 
-    typedef typename boost::mpl::transform<ValueTypes,
-      MakeSignature<boost::mpl::placeholders::_1>>::type SupportedTypes;
+    using SupportedTypes = typename boost::mpl::transform<ValueTypes,
+      MakeSignature<boost::mpl::placeholders::_1>>::type;
   };
 
   /*! \struct MaxExpressionTranslator
@@ -161,15 +159,15 @@ namespace Details {
 
     template<typename T>
     struct MakeSignature {
-      typedef typename boost::mpl::vector<T, T, T>::type type;
+      using type = typename boost::mpl::vector<T, T, T>::type;
     };
 
-    typedef typename boost::mpl::copy_if<ValueTypes,
+    using ComparableTypes = typename boost::mpl::copy_if<ValueTypes,
       HasLessThan<boost::mpl::placeholders::_1>,
-      boost::mpl::front_inserter<boost::mpl::list<>>>::type ComparableTypes;
+      boost::mpl::front_inserter<boost::mpl::list<>>>::type;
 
-    typedef typename boost::mpl::transform<ComparableTypes,
-      MakeSignature<boost::mpl::placeholders::_1>>::type SupportedTypes;
+    using SupportedTypes = typename boost::mpl::transform<ComparableTypes,
+      MakeSignature<boost::mpl::placeholders::_1>>::type;
   };
 
   /*! \struct MinExpressionTranslator
@@ -186,15 +184,15 @@ namespace Details {
 
     template<typename T>
     struct MakeSignature {
-      typedef typename boost::mpl::vector<T, T, T>::type type;
+      using type = typename boost::mpl::vector<T, T, T>::type;
     };
 
-    typedef typename boost::mpl::copy_if<ValueTypes,
+    using ComparableTypes = typename boost::mpl::copy_if<ValueTypes,
       HasLessThan<boost::mpl::placeholders::_1>,
-      boost::mpl::front_inserter<boost::mpl::list<>>>::type ComparableTypes;
+      boost::mpl::front_inserter<boost::mpl::list<>>>::type;
 
-    typedef typename boost::mpl::transform<ComparableTypes,
-      MakeSignature<boost::mpl::placeholders::_1>>::type SupportedTypes;
+    using SupportedTypes = typename boost::mpl::transform<ComparableTypes,
+      MakeSignature<boost::mpl::placeholders::_1>>::type;
   };
 }
 

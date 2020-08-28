@@ -2,6 +2,7 @@
 #define BEAM_PYTHON_QUEUE_READER_HPP
 #include <pybind11/pybind11.h>
 #include "Beam/Python/GilRelease.hpp"
+#include "Beam/Python/Optional.hpp"
 #include "Beam/Queues/QueueReader.hpp"
 
 namespace Beam::Python {
@@ -12,19 +13,16 @@ namespace Beam::Python {
    */
   template<typename T>
   struct TrampolineQueueReader final : T {
-    using Target = typename T::Target;
+    using Source = typename T::Source;
     using T::T;
 
-    bool IsEmpty() const override {
-      PYBIND11_OVERLOAD_PURE_NAME(bool, T, "is_empty", IsEmpty);
+    Source Pop() override {
+      PYBIND11_OVERLOAD_PURE_NAME(Source, T, "pop", Pop);
     }
 
-    Target Top() const override {
-      PYBIND11_OVERLOAD_PURE_NAME(Target, T, "top", Top);
-    }
-
-    void Pop() override {
-      PYBIND11_OVERLOAD_PURE_NAME(void, T, "pop", Pop);
+    boost::optional<Source> TryPop() override {
+      PYBIND11_OVERLOAD_PURE_NAME(boost::optional<Source>, T, "try_pop",
+        TryPop);
     }
   };
 
@@ -35,7 +33,7 @@ namespace Beam::Python {
   template<typename T>
   class FromPythonQueueReader final : public QueueReader<T> {
     public:
-      using Target = typename QueueReader<T>::Target;
+      using Source = typename QueueReader<T>::Source;
 
       /**
        * Constructs a FromPythonQueueReader.
@@ -49,16 +47,11 @@ namespace Beam::Python {
       //! Returns the QueueReader being wrapped.
       const std::shared_ptr<QueueReader<pybind11::object>>& GetSource() const;
 
-      bool IsEmpty() const override;
+      Source Pop() override;
 
-      Target Top() const override;
-
-      void Pop() override;
+      boost::optional<Source> TryPop() override;
 
       void Break(const std::exception_ptr& e) override;
-
-    protected:
-      bool IsAvailable() const override;
 
     private:
       std::shared_ptr<QueueReader<pybind11::object>> m_source;
@@ -77,7 +70,7 @@ namespace Beam::Python {
   template<typename T>
   FromPythonQueueReader<T>::FromPythonQueueReader(
     std::shared_ptr<QueueReader<pybind11::object>> source)
-    : m_source{std::move(source)} {}
+    : m_source(std::move(source)) {}
 
   template<typename T>
   FromPythonQueueReader<T>::~FromPythonQueueReader() {
@@ -92,34 +85,31 @@ namespace Beam::Python {
   }
 
   template<typename T>
-  bool FromPythonQueueReader<T>::IsEmpty() const {
-    return m_source->IsEmpty();
-  }
-
-  template<typename T>
-  typename FromPythonQueueReader<T>::Target
-      FromPythonQueueReader<T>::Top() const {
-    if(IsEmpty()) {
-      auto release = GilRelease();
-      m_source->Wait();
+  typename FromPythonQueueReader<T>::Source FromPythonQueueReader<T>::Pop() {
+    if(auto value = TryPop()) {
+      return std::move(*value);
     }
+    auto value = [&] {
+      auto release = GilRelease();
+      return m_source->Pop();
+    }();
     auto lock = GilLock();
-    return m_source->Top().cast<T>();
+    return value.template cast<Source>();
   }
 
   template<typename T>
-  void FromPythonQueueReader<T>::Pop() {
-    m_source->Pop();
+  boost::optional<typename FromPythonQueueReader<T>::Source>
+      FromPythonQueueReader<T>::TryPop() {
+    if(auto value = m_source->TryPop()) {
+      auto lock = GilLock();
+      return value->template cast<Source>();
+    }
+    return boost::none;
   }
 
   template<typename T>
   void FromPythonQueueReader<T>::Break(const std::exception_ptr& e) {
     m_source->Break(e);
-  }
-
-  template<typename T>
-  bool FromPythonQueueReader<T>::IsAvailable() const {
-    return QueueReader<T>::IsAvailable(*m_source);
   }
 }
 

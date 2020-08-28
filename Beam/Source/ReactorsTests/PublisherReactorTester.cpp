@@ -10,7 +10,7 @@ using namespace Beam;
 using namespace Beam::Reactors;
 
 TEST_SUITE("PublisherReactorTester") {
-  TEST_CASE("Test empty publisher.") {
+  TEST_CASE("empty") {
     auto commits = Beam::Queue<bool>();
     auto trigger = Trigger(
       [&] {
@@ -21,7 +21,7 @@ TEST_SUITE("PublisherReactorTester") {
     auto reactor = PublisherReactor(publisher);
     REQUIRE(reactor.commit(0) == State::NONE);
     publisher->Break();
-    commits.Top();
+    commits.Pop();
     REQUIRE(reactor.commit(1) == State::COMPLETE);
     Trigger::set_trigger(nullptr);
   }

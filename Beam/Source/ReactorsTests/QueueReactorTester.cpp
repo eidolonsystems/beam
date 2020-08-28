@@ -8,7 +8,7 @@ using namespace Beam;
 using namespace Beam::Reactors;
 
 TEST_SUITE("QueueReactorTester") {
-  TEST_CASE("Test empty queue.") {
+  TEST_CASE("empty") {
     auto commits = Beam::Queue<bool>();
     auto trigger = Trigger(
       [&] {
@@ -19,11 +19,11 @@ TEST_SUITE("QueueReactorTester") {
     auto reactor = QueueReactor(queue);
     REQUIRE(reactor.commit(0) == State::NONE);
     queue->Break();
-    commits.Top();
+    commits.Pop();
     REQUIRE(reactor.commit(1) == State::COMPLETE);
     Trigger::set_trigger(nullptr);
   }
-  TEST_CASE("Test immediate exception.") {
+  TEST_CASE("immediate_exception") {
     auto commits = Beam::Queue<bool>();
     auto trigger = Trigger(
       [&] {
@@ -34,12 +34,12 @@ TEST_SUITE("QueueReactorTester") {
     auto reactor = QueueReactor(queue);
     REQUIRE(reactor.commit(0) == State::NONE);
     queue->Break(std::runtime_error("Broken."));
-    commits.Top();
+    commits.Pop();
     REQUIRE(reactor.commit(1) == State::COMPLETE_EVALUATED);
     REQUIRE_THROWS_AS_MESSAGE(reactor.eval(), std::runtime_error, "Broken.");
     Trigger::set_trigger(nullptr);
   }
-  TEST_CASE("Test single value.") {
+  TEST_CASE("single_value") {
     auto commits = Beam::Queue<bool>();
     auto trigger = Trigger(
       [&] {
@@ -51,15 +51,13 @@ TEST_SUITE("QueueReactorTester") {
     REQUIRE(reactor.commit(0) == State::NONE);
     queue->Push(123);
     queue->Break();
-    commits.Top();
     commits.Pop();
-    commits.Top();
     commits.Pop();
     REQUIRE(reactor.commit(1) == State::COMPLETE_EVALUATED);
     REQUIRE(reactor.eval() == 123);
     Trigger::set_trigger(nullptr);
   }
-  TEST_CASE("Test single value exception.") {
+  TEST_CASE("single_value_exception") {
     auto commits = Beam::Queue<bool>();
     auto trigger = Trigger(
       [&] {
@@ -71,9 +69,7 @@ TEST_SUITE("QueueReactorTester") {
     REQUIRE(reactor.commit(0) == State::NONE);
     queue->Push(123);
     queue->Break(std::runtime_error("Broken."));
-    commits.Top();
     commits.Pop();
-    commits.Top();
     commits.Pop();
     REQUIRE(reactor.commit(1) == State::CONTINUE_EVALUATED);
     REQUIRE(reactor.eval() == 123);

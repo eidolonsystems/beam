@@ -1,12 +1,8 @@
 #ifndef BEAM_ALGORITHM_HPP
 #define BEAM_ALGORITHM_HPP
 #include <algorithm>
-#include <deque>
 #include <iterator>
 #include <map>
-#include <ostream>
-#include <set>
-#include <tuple>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -398,66 +394,6 @@ namespace Beam {
       std::end(containers)...));
     return boost::make_iterator_range(zipBegin, zipEnd);
   }
-}
-
-//! Prints a vector to an ostream.
-/*!
-  \param out The stream to print to.
-  \param value The vector to print.
-  \return <i>out</i> for chaining purposes.
-*/
-template<typename T>
-std::ostream& operator <<(std::ostream& out, const std::vector<T>& value) {
-  out << "[";
-  for(typename std::vector<T>::const_iterator i = value.begin();
-      i != value.end(); ++i) {
-    out << *i;
-    if(i != value.end() - 1) {
-      out << ", ";
-    }
-  }
-  out << "]";
-  return out;
-}
-
-//! Prints a map to an ostream.
-/*!
-  \param out The stream to print to.
-  \param value The vector to print.
-  \return <i>out</i> for chaining purposes.
-*/
-template<typename K, typename V>
-std::ostream& operator <<(std::ostream& out, const std::map<K, V>& value) {
-  out << "{";
-  for(typename std::map<K, V>::const_iterator i = value.begin();
-      i != value.end(); ++i) {
-    out << i->first << ": " << i->second;
-    if(i != value.end() - 1) {
-      out << ", ";
-    }
-  }
-  out << "}";
-  return out;
-}
-
-//! Prints a set to an ostream.
-/*!
-  \param out The stream to print to.
-  \param value The vector to print.
-  \return <i>out</i> for chaining purposes.
-*/
-template<typename T>
-std::ostream& operator <<(std::ostream& out, const std::set<T>& value) {
-  out << "{";
-  for(typename std::set<T>::const_iterator i = value.begin();
-      i != value.end(); ++i) {
-    out << *i;
-    if(i != value.end() - 1) {
-      out << ", ";
-    }
-  }
-  out << "}";
-  return out;
 }
 
 #endif

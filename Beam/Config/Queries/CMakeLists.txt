@@ -1,18 +1,13 @@
 file(GLOB header_files ${BEAM_INCLUDE_PATH}/Beam/QueriesTests/*.hpp)
 file(GLOB source_files ${BEAM_SOURCE_PATH}/QueriesTests/*.cpp)
-
 if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
 endif()
-
 add_executable(QueriesTests ${header_files} ${source_files})
 set_source_files_properties(${header_files} PROPERTIES HEADER_FILE_ONLY TRUE)
 target_link_libraries(QueriesTests
-  debug ${CPPUNIT_LIBRARY_DEBUG_PATH}
-  optimized ${CPPUNIT_LIBRARY_OPTIMIZED_PATH}
   debug ${SQLITE_LIBRARY_DEBUG_PATH}
   optimized ${SQLITE_LIBRARY_OPTIMIZED_PATH})
-
 if(UNIX)
   target_link_libraries(QueriesTests
     debug ${BOOST_CHRONO_LIBRARY_DEBUG_PATH}
@@ -27,7 +22,6 @@ if(UNIX)
     optimized ${BOOST_SYSTEM_LIBRARY_OPTIMIZED_PATH}
     dl pthread rt)
 endif()
-
 add_custom_command(TARGET QueriesTests POST_BUILD COMMAND QueriesTests)
 install(TARGETS QueriesTests CONFIGURATIONS Debug
   DESTINATION ${TEST_INSTALL_DIRECTORY}/Debug)

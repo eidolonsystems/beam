@@ -402,9 +402,7 @@ namespace Details {
       ServiceSlotsPolicy, SessionType, SupportsParallelismValue>>>
       ServiceProtocolClient<MessageProtocolType, TimerType, ServiceSlotsPolicy,
       SessionType, SupportsParallelismValue>::ReadMessage() {
-    auto message = m_messages.Top();
-    m_messages.Pop();
-    return message;
+    return m_messages.Pop();
   }
 
   template<typename MessageProtocolType, typename TimerType,
@@ -557,9 +555,7 @@ namespace Details {
     HeartbeatMessage<ServiceProtocolClient> heartbeatMessage;
     try {
       while(m_openState.IsRunning()) {
-        auto result = m_timerQueue->Top();
-        m_timerQueue->Pop();
-        if(result == Threading::Timer::Result::EXPIRED) {
+        if(m_timerQueue->Pop() == Threading::Timer::Result::EXPIRED) {
           Send(heartbeatMessage);
         } else {
           break;

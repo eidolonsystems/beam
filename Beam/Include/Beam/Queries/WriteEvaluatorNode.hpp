@@ -4,6 +4,7 @@
 #include <utility>
 #include "Beam/Queries/EvaluatorNode.hpp"
 #include "Beam/Queries/Queries.hpp"
+#include "Beam/Utilities/Casts.hpp"
 
 namespace Beam {
 namespace Queries {
@@ -15,7 +16,7 @@ namespace Queries {
   template<typename T>
   class WriteEvaluatorNode : public EvaluatorNode<T> {
     public:
-      typedef T Result;
+      using Result = T;
 
       //! Constructs a WriteEvaluatorNode.
       /*!
@@ -39,10 +40,10 @@ namespace Queries {
         std::unique_ptr<BaseEvaluatorNode> value) {
       return std::make_unique<WriteEvaluatorNode<T>>(
         static_cast<T*>(destination),
-        UniqueStaticCast<EvaluatorNode<T>>(std::move(value)));
+        StaticCast<std::unique_ptr<EvaluatorNode<T>>>(std::move(value)));
     }
 
-    typedef TypeList SupportedTypes;
+    using SupportedTypes = TypeList;
   };
 
   template<typename T>

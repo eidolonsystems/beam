@@ -4,6 +4,7 @@
 #include <boost/mpl/at.hpp>
 #include <boost/mpl/vector.hpp>
 #include <boost/preprocessor/cat.hpp>
+#include <boost/preprocessor/control/if.hpp>
 #include <boost/preprocessor/facilities/empty.hpp>
 #include <boost/preprocessor/seq/for_each.hpp>
 #include <boost/preprocessor/seq/for_each_i.hpp>
@@ -11,6 +12,7 @@
 #include <boost/preprocessor/tuple/elem.hpp>
 #include <boost/preprocessor/tuple/to_seq.hpp>
 #include "Beam/Serialization/Serialization.hpp"
+#include "Beam/Utilities/Preprocessor.hpp"
 
 namespace Beam {
 namespace Serialization {
@@ -18,9 +20,9 @@ namespace Serialization {
     BOOST_PP_COMMA_IF(i) BOOST_PP_TUPLE_ELEM(2, 0, q)
 
   #define BEAM_RECORD_DECLARE_TYPE_LIST(N, ...)                                \
-    typedef boost::mpl::vector<BOOST_PP_SEQ_FOR_EACH_I(                        \
+    using TypeList = boost::mpl::vector<BOOST_PP_SEQ_FOR_EACH_I(               \
       BEAM_RECORD_DECLARE_TYPE_LIST_, BOOST_PP_EMPTY,                          \
-      BOOST_PP_TUPLE_TO_SEQ(N, (__VA_ARGS__)))> TypeList;
+      BOOST_PP_TUPLE_TO_SEQ(N, (__VA_ARGS__)))>;
 
   #define BEAM_RECORD_DECLARE_MEMBERS_(z, n, q)                                \
     BOOST_PP_TUPLE_ELEM(2, 0, q) BOOST_PP_TUPLE_ELEM(2, 1, q);
@@ -106,12 +108,9 @@ namespace Serialization {
   #define BEAM_DEFINE_RECORD_(Name, ...)                                       \
     BEAM_DEFINE_RECORD__(Name, PP_NARG(__VA_ARGS__), __VA_ARGS__)
 
-  #define BEAM_DEFINE_RECORD(Name, ...)                                        \
-    BEAM_DEFINE_RECORD_(Name, MAKE_PAIRS(__VA_ARGS__))
-
   #define BEAM_DEFINE_EMPTY_RECORD(Name)                                       \
     struct Name {                                                              \
-      typedef boost::mpl::vector<> TypeList;                                   \
+      using TypeList = boost::mpl::vector<>;                                   \
                                                                                \
       Name() {}                                                                \
                                                                                \
@@ -131,6 +130,13 @@ namespace Serialization {
         return typename boost::mpl::at_c<TypeList, I>::type();                 \
       };                                                                       \
     };
+
+  #define BEAM_EXPAND_RECORD(...) __VA_ARGS__
+  #define BEAM_DEFINE_RECORD(Name, ...)                                        \
+    BOOST_PP_EXPAND(BEAM_EXPAND_RECORD                                         \
+      BOOST_PP_IF(BEAM_PP_NARG_IS_EMPTY(__VA_ARGS__),                          \
+        (BEAM_DEFINE_EMPTY_RECORD(Name)),                                      \
+        (BEAM_DEFINE_RECORD_(Name, MAKE_PAIRS(__VA_ARGS__)))))
 }
 }
 

@@ -1,11 +1,8 @@
 file(GLOB source_files ${BEAM_SOURCE_PATH}/ReactorsTests/*.cpp)
-
 if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
 endif()
-
 add_executable(ReactorsTests ${source_files})
-
 if(UNIX)
   target_link_libraries(ReactorsTests
     debug ${BOOST_CHRONO_LIBRARY_DEBUG_PATH}
@@ -18,7 +15,6 @@ if(UNIX)
     optimized ${BOOST_SYSTEM_LIBRARY_OPTIMIZED_PATH}
     dl pthread rt)
 endif(UNIX)
-
 add_custom_command(TARGET ReactorsTests POST_BUILD COMMAND ReactorsTests)
 install(TARGETS ReactorsTests CONFIGURATIONS Debug
   DESTINATION ${TEST_INSTALL_DIRECTORY}/Debug)

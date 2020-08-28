@@ -16,7 +16,7 @@ namespace Queries {
   template<typename ResultType>
   class ConstantEvaluatorNode : public EvaluatorNode<ResultType> {
     public:
-      typedef ResultType Result;
+      using Result = ResultType;
 
       //! Constructs a ConstantEvaluatorNode.
       /*!
@@ -30,21 +30,10 @@ namespace Queries {
       Result m_constant;
   };
 
-  //! Makes a ConstantEvaluatorNode that wraps a value.
-  /*!
-    \param value The value to wrap.
-  */
-  template<typename T>
-  ConstantEvaluatorNode<typename std::decay<T>::type> MakeConstantEvaluatorNode(
-      T&& value) {
-    return ConstantEvaluatorNode<typename std::decay<T>::type>(
-      std::forward<T>(value));
-  }
-
   template<typename ResultType>
   ConstantEvaluatorNode<ResultType>::ConstantEvaluatorNode(
-      const Result& constant)
-      : m_constant(constant) {}
+    const Result& constant)
+    : m_constant(constant) {}
 
   template<typename ResultType>
   typename ConstantEvaluatorNode<ResultType>::Result
@@ -59,7 +48,7 @@ namespace Queries {
       return new ConstantEvaluatorNode<T>(expression.GetValue()->GetValue<T>());
     }
 
-    typedef TypeList SupportedTypes;
+    using SupportedTypes = TypeList;
   };
 }
 }

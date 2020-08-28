@@ -1,82 +1,76 @@
-#ifndef BEAM_QUEUEREADER_HPP
-#define BEAM_QUEUEREADER_HPP
+#ifndef BEAM_QUEUE_READER_HPP
+#define BEAM_QUEUE_READER_HPP
+#include <type_traits>
+#include <boost/optional/optional.hpp>
+#include "Beam/Pointers/Dereference.hpp"
+#include "Beam/Pointers/Out.hpp"
 #include "Beam/Queues/BaseQueue.hpp"
 #include "Beam/Queues/Queues.hpp"
-#include "Beam/Threading/Waitable.hpp"
 
 namespace Beam {
 
-  /*! \class QueueReader
-      \brief Interface for the read-only side of a Queue.
-      \tparam T The data to read from the Queue.
+  /**
+   * Interface for the read-only side of a Queue.
+   * @param <T> The data to read from the Queue.
    */
   template<typename T>
-  class QueueReader : public virtual BaseQueue, public Threading::Waitable {
+  class QueueReader : public virtual BaseQueue {
     public:
 
-      //! The type being read.
-      using Target = T;
+      /** The type being read. */
+      using Source = T;
 
-      virtual ~QueueReader() = default;
+      /**
+       * Returns the first value in the queue and pops it, blocking until a
+       * value is available.
+       */
+      virtual Source Pop() = 0;
 
-      //! Returns <code>true</code> iff the Queue is empty.
-      virtual bool IsEmpty() const = 0;
-
-      //! Returns the top value in the Queue.
-      virtual Target Top() const = 0;
-
-      //! Removes the top value in the Queue.
-      virtual void Pop() = 0;
-
-      //! Blocks until a value is available to be popped.
-      void Wait() const;
-
-    protected:
-      template<typename U>
-      static bool IsAvailable(const QueueReader<U>& queue);
+      /**
+       * Returns the first value in the queue if one is available and pops it
+       * without blocking, otherwise returns <i>boost::none</i>.
+       */
+      virtual boost::optional<Source> TryPop() = 0;
   };
 
-  //! Flushes the contents of a QueueReader into an iterator.
-  /*!
-    \param queue The QueueReader to flush.
-    \param destination An iterator to the first position to flush the
-           <i>queue<i> to.
-  */
+  /**
+   * Flushes the contents of a QueueReader into an iterator.
+   * @param queue The QueueReader to flush.
+   * @param destination An iterator to the first position to flush the
+   *        <i>queue<i> to.
+   */
   template<typename Queue, typename Iterator>
-  void FlushQueue(const Queue& queue, Iterator destination) {
+  std::enable_if_t<std::is_base_of_v<QueueReader<typename GetTryDereferenceType<
+      Queue>::Source>, GetTryDereferenceType<Queue>>> Flush(const Queue& queue,
+      Iterator destination) {
     try {
       while(true) {
-        *destination = queue->Top();
-        queue->Pop();
+        *destination = queue->Pop();
         ++destination;
       }
     } catch(const std::exception&) {}
   }
 
-  template<typename Queue, typename F1, typename F2>
-  void Monitor(const Queue& queue, const F1& valueCallback,
-      const F2& breakCallback) {
+  template<typename Queue, typename F>
+  std::enable_if_t<std::is_base_of_v<QueueReader<typename GetTryDereferenceType<
+      Queue>::Source>, GetTryDereferenceType<Queue>>> ForEach(
+      const Queue& queue, F&& f) {
     try {
       while(true) {
-        valueCallback(queue->Top());
-        queue->Pop();
+        f(queue->Pop());
+      }
+    } catch(const std::exception&) {}
+  }
+
+  template<typename Queue, typename F1, typename F2>
+  void Monitor(const Queue& queue, F1&& valueCallback, F2&& breakCallback) {
+    try {
+      while(true) {
+        valueCallback(queue->Pop());
       }
     } catch(const std::exception&) {
       breakCallback(std::current_exception());
     }
-  }
-
-  template<typename T>
-  void QueueReader<T>::Wait() const {
-    boost::unique_lock<boost::mutex> lock{GetMutex()};
-    Threading::Waitable::Wait(lock);
-  }
-
-  template<typename T>
-  template<typename U>
-  bool QueueReader<T>::IsAvailable(const QueueReader<U>& queue) {
-    return Threading::Waitable::IsAvailable(
-      static_cast<const Threading::Waitable&>(queue));
   }
 }
 

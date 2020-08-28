@@ -1,7 +1,7 @@
-#ifndef BEAM_STATEPUBLISHER_HPP
-#define BEAM_STATEPUBLISHER_HPP
-#include <optional>
-#include "Beam/Queues/MultiQueueWriter.hpp"
+#ifndef BEAM_STATE_PUBLISHER_HPP
+#define BEAM_STATE_PUBLISHER_HPP
+#include <type_traits>
+#include "Beam/Queues/QueueWriterPublisher.hpp"
 #include "Beam/Queues/SnapshotPublisher.hpp"
 #include "Beam/Queues/Queues.hpp"
 #include "Beam/Queues/QueueWriter.hpp"
@@ -9,121 +9,111 @@
 
 namespace Beam {
 
-  /*! \class StatePublisher
-      \brief Publishes the most recent update to a value.
-      \tparam T The type of data to publish.
+  /**
+   * Publishes the most recent update to a value.
+   * @param <T> The type of data to publish.
    */
   template<typename T>
-  class StatePublisher : public SnapshotPublisher<T, T>, public QueueWriter<T> {
+  class StatePublisher final : public SnapshotPublisher<T, T>,
+      public QueueWriter<T> {
     public:
       using Type = typename SnapshotPublisher<T, T>::Type;
       using Snapshot = typename SnapshotPublisher<T, T>::Snapshot;
 
-      //! Constructs a StatePublisher.
+      /** Constructs a StatePublisher. */
       StatePublisher() = default;
 
-      //! Constructs a StatePublisher.
-      /*!
-        \param value The initial state of the value to publish.
-      */
-      template<typename ValueForward>
-      StatePublisher(ValueForward&& value);
+      /**
+       * Constructs a StatePublisher.
+       * @param value The initial state of the value to publish.
+       */
+      template<typename VF, typename = std::enable_if_t<
+        !std::is_base_of_v<StatePublisher, std::decay_t<VF>>>>
+      explicit StatePublisher(VF&& value);
 
-      ~StatePublisher() override final;
+      void With(
+        const std::function<void (boost::optional<const Snapshot&>)>& f)
+        const override;
 
-      virtual void WithSnapshot(const std::function<
-        void (boost::optional<const Snapshot&>)>& f) const override final;
+      void Monitor(ScopedQueueWriter<Type> monitor,
+        Out<boost::optional<Snapshot>> snapshot) const override;
 
-      virtual void Monitor(std::shared_ptr<QueueWriter<Type>> monitor,
-        Out<boost::optional<Snapshot>> snapshot) const override final;
+      void With(const std::function<void ()>& f) const override;
 
-      virtual void With(const std::function<void ()>& f) const override final;
+      void Monitor(ScopedQueueWriter<Type> monitor) const override;
 
-      virtual void Monitor(
-        std::shared_ptr<QueueWriter<Type>> monitor) const override final;
+      void Push(const Type& value) override;
 
-      virtual void Push(const T& value) override final;
+      void Push(Type&& value) override;
 
-      virtual void Push(T&& value) override final;
-
-      virtual void Break(const std::exception_ptr& e) override final;
+      void Break(const std::exception_ptr& e) override;
 
       using QueueWriter<T>::Break;
+      using SnapshotPublisher<T, T>::With;
     private:
       mutable Threading::RecursiveMutex m_mutex;
-      std::optional<T> m_value;
-      MultiQueueWriter<T> m_queue;
+      boost::optional<Type> m_value;
+      QueueWriterPublisher<Type> m_publisher;
   };
 
   template<typename T>
-  template<typename ValueForward>
-  StatePublisher<T>::StatePublisher(ValueForward&& value)
-      : m_value(std::forward<ValueForward>(value)) {}
+  template<typename VF, typename>
+  StatePublisher<T>::StatePublisher(VF&& value)
+    : m_value(std::forward<VF>(value)) {}
 
   template<typename T>
-  StatePublisher<T>::~StatePublisher() {
-    Break();
-  }
-
-  template<typename T>
-  void StatePublisher<T>::WithSnapshot(
+  void StatePublisher<T>::With(
       const std::function<void (boost::optional<const Snapshot&>)>& f) const {
-    boost::lock_guard<Threading::RecursiveMutex> lock(m_mutex);
-    if(m_value.has_value()) {
+    auto lock = boost::lock_guard(m_mutex);
+    if(m_value) {
       f(*m_value);
     } else {
-      f(boost::optional<const Snapshot&>());
+      f(boost::none);
     }
   }
 
   template<typename T>
-  void StatePublisher<T>::Monitor(
-      std::shared_ptr<QueueWriter<Type>> queue,
+  void StatePublisher<T>::Monitor(ScopedQueueWriter<Type> queue,
       Out<boost::optional<Snapshot>> snapshot) const {
-    boost::lock_guard<Threading::RecursiveMutex> lock(m_mutex);
-    if(m_value.has_value()) {
-      *snapshot = *m_value;
-    } else {
-      *snapshot = boost::optional<Snapshot>();
-    }
-    m_queue.Monitor(queue);
+    auto lock = boost::lock_guard(m_mutex);
+    *snapshot = m_value;
+    m_publisher.Monitor(std::move(queue));
   }
 
   template<typename T>
   void StatePublisher<T>::With(const std::function<void ()>& f) const {
-    boost::lock_guard<Threading::RecursiveMutex> lock(m_mutex);
+    auto lock = boost::lock_guard(m_mutex);
     f();
   }
 
   template<typename T>
-  void StatePublisher<T>::Monitor(
-      std::shared_ptr<QueueWriter<Type>> queue) const {
-    boost::lock_guard<Threading::RecursiveMutex> lock(m_mutex);
-    if(m_value.has_value()) {
-      queue->Push(*m_value);
+  void StatePublisher<T>::Monitor(ScopedQueueWriter<Type> queue) const {
+    auto lock = boost::lock_guard(m_mutex);
+    if(m_value) {
+      queue.Push(*m_value);
     }
-    m_queue.Monitor(queue);
+    m_publisher.Monitor(std::move(queue));
   }
 
   template<typename T>
-  void StatePublisher<T>::Push(const T& value) {
-    boost::lock_guard<Threading::RecursiveMutex> lock(m_mutex);
+  void StatePublisher<T>::Push(const Type& value) {
+    auto lock = boost::lock_guard(m_mutex);
     m_value = value;
-    m_queue.Push(*m_value);
+    m_publisher.Push(*m_value);
   }
 
   template<typename T>
-  void StatePublisher<T>::Push(T&& value) {
-    boost::lock_guard<Threading::RecursiveMutex> lock(m_mutex);
+  void StatePublisher<T>::Push(Type&& value) {
+    auto lock = boost::lock_guard(m_mutex);
     m_value = std::move(value);
-    m_queue.Push(*m_value);
+    m_publisher.Push(*m_value);
   }
 
   template<typename T>
   void StatePublisher<T>::Break(const std::exception_ptr& e) {
-    boost::lock_guard<Threading::RecursiveMutex> lock(m_mutex);
-    m_value = std::nullopt;
-    m_queue.Break(e);
+    auto lock = boost::lock_guard(m_mutex);
+    m_value = boost::none;
+    m_publisher.Break(e);
   }
 }
 

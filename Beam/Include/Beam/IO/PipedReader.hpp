@@ -19,10 +19,10 @@ namespace IO {
   template<typename BufferType>
   class PipedReader : private boost::noncopyable {
     public:
-      typedef BufferType Buffer;
+      using Buffer = BufferType;
 
       //! The type of the PipedWriter that connects to this PipedReader.
-      typedef IO::PipedWriter<Buffer> PipedWriter;
+      using PipedWriter = IO::PipedWriter<Buffer>;
 
       //! Constructs an empty PipedReader.
       PipedReader();
@@ -45,8 +45,8 @@ namespace IO {
 
   template<typename BufferType>
   PipedReader<BufferType>::PipedReader()
-      : m_reader(BufferFromString<Buffer>("")),
-        m_messages(std::make_shared<Queue<BufferReader<Buffer>>>()) {}
+    : m_reader(BufferFromString<Buffer>("")),
+      m_messages(std::make_shared<Queue<BufferReader<Buffer>>>()) {}
 
   template<typename BufferType>
   PipedReader<BufferType>::~PipedReader() {
@@ -59,9 +59,8 @@ namespace IO {
       if(m_reader.IsDataAvailable()) {
         return true;
       }
-      if(!m_messages->IsEmpty()) {
-        m_reader = m_messages->Top();
-        m_messages->Pop();
+      if(auto reader = m_messages->TryPop()) {
+        m_reader = std::move(*reader);
       } else {
         return false;
       }
@@ -81,8 +80,7 @@ namespace IO {
       try {
         return m_reader.Read(destination, size);
       } catch(const EndOfFileException&) {
-        m_reader = m_messages->Top();
-        m_messages->Pop();
+        m_reader = m_messages->Pop();
       }
     }
   }
@@ -94,8 +92,7 @@ namespace IO {
       try {
         return m_reader.Read(Store(destination), size);
       } catch(const EndOfFileException&) {
-        m_reader = m_messages->Top();
-        m_messages->Pop();
+        m_reader = m_messages->Pop();
       }
     }
   }

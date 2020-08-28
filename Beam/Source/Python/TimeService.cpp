@@ -1,5 +1,6 @@
 #include "Beam/Python/TimeService.hpp"
 #include <boost/date_time/local_time/local_time.hpp>
+#include "Beam/Parsers/Parse.hpp"
 #include "Beam/Python/Beam.hpp"
 #include "Beam/Python/ToPythonTimeClient.hpp"
 #include "Beam/Python/ToPythonTimer.hpp"
@@ -17,6 +18,7 @@
 using namespace Beam;
 using namespace Beam::IO;
 using namespace Beam::Network;
+using namespace Beam::Parsers;
 using namespace Beam::Python;
 using namespace Beam::ServiceLocator;
 using namespace Beam::Threading;
@@ -103,7 +105,7 @@ void Beam::Python::ExportNtpTimeClient(pybind11::module& module) {
                 throw ConnectException("No time services available.");
               }
               auto& timeService = timeServices.front();
-              auto ntpPool = FromString<std::vector<IpAddress>>(
+              auto ntpPool = Parse<std::vector<IpAddress>>(
                 get<std::string>(timeService.GetProperties().At("addresses")));
               return MakeLiveNtpTimeClient(ntpPool, Ref(*GetSocketThreadPool()),
                 Ref(*GetTimerThreadPool()));
@@ -170,14 +172,12 @@ void Beam::Python::ExportTimeService(pybind11::module& module) {
 void Beam::Python::ExportTimeServiceTestEnvironment(pybind11::module& module) {
   class_<TimeServiceTestEnvironment>(module, "TimeServiceTestEnvironment")
     .def(init())
-  .def("set_time", &TimeServiceTestEnvironment::SetTime,
-      call_guard<gil_scoped_release>())
-  .def("advance_time", &TimeServiceTestEnvironment::AdvanceTime,
-    call_guard<gil_scoped_release>())
-  .def("get_time", &TimeServiceTestEnvironment::GetTime,
-    call_guard<gil_scoped_release>())
-  .def("open", &TimeServiceTestEnvironment::Open,
-    call_guard<gil_scoped_release>())
-  .def("close", &TimeServiceTestEnvironment::Close,
-    call_guard<gil_scoped_release>());
+    .def("set_time", &TimeServiceTestEnvironment::SetTime,
+      call_guard<GilRelease>())
+    .def("advance_time", &TimeServiceTestEnvironment::AdvanceTime,
+      call_guard<GilRelease>())
+    .def("get_time", &TimeServiceTestEnvironment::GetTime,
+      call_guard<GilRelease>())
+    .def("open", &TimeServiceTestEnvironment::Open, call_guard<GilRelease>())
+    .def("close", &TimeServiceTestEnvironment::Close, call_guard<GilRelease>());
 }

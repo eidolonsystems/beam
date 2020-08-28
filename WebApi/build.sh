@@ -1,29 +1,45 @@
 #!/bin/bash
 source="${BASH_SOURCE[0]}"
 while [ -h "$source" ]; do
-  dir="$(cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd)"
+  dir="$(cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd -P)"
   source="$(readlink "$source")"
   [[ $source != /* ]] && source="$dir/$source"
 done
-directory="$(cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd)"
-root=$(pwd)
+directory="$(cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd -P)"
+root=$(pwd -P)
+for i in "$@"; do
+  case $i in
+    -DD=*)
+      dependencies="${i#*=}"
+      shift
+      ;;
+    *)
+      config="$i"
+      shift
+      ;;
+  esac
+done
+if [ "$config" = "" ]; then
+  config="Release"
+fi
 if [ "$(uname -s)" = "Darwin" ]; then
   STAT='stat -x -t "%Y%m%d%H%M%S"'
 else
   STAT='stat'
 fi
-if [ "$1" = "clean" ]; then
+if [ "$config" = "clean" ]; then
   rm -rf library
   rm -f mod_time.txt
   exit 0
 fi
-if [ "$1" = "reset" ]; then
+if [ "$config" = "reset" ]; then
   rm -rf library
   rm -f mod_time.txt
   rm -rf node_modules
   rm -f package-lock.json
   exit 0
 fi
+"$directory/configure.sh"
 if [ ! -d "node_modules" ]; then
   UPDATE_NODE=1
 else

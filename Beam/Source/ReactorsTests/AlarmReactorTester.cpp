@@ -14,7 +14,7 @@ using namespace boost::gregorian;
 using namespace boost::posix_time;
 
 TEST_SUITE("AlarmReactorTester") {
-  TEST_CASE("Test expiry") {
+  TEST_CASE("expiry") {
     auto commits = Beam::Queue<bool>();
     auto trigger = Trigger(
       [&] {
@@ -36,7 +36,6 @@ TEST_SUITE("AlarmReactorTester") {
     REQUIRE(reactor.eval() == 0);
     REQUIRE(reactor.commit(1) == State::NONE);
     timer->Trigger();
-    commits.Top();
     commits.Pop();
     REQUIRE(reactor.commit(2) == State::EVALUATED);
     REQUIRE(reactor.eval() == 1);

@@ -117,11 +117,11 @@ namespace Queries {
     static BaseEvaluatorNode* Template(std::unique_ptr<Evaluator> reducer,
         std::unique_ptr<BaseEvaluatorNode> series, const Value& initialValue) {
       return new ReduceEvaluatorNode<T>(std::move(reducer),
-        UniqueStaticCast<EvaluatorNode<T>>(std::move(series)),
+        StaticCast<std::unique_ptr<EvaluatorNode<T>>>(std::move(series)),
         initialValue->GetValue<T>());
     }
 
-    typedef TypeList SupportedTypes;
+    using SupportedTypes = TypeList;
   };
 
   template<typename T>

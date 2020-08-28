@@ -1,125 +1,129 @@
 #ifndef BEAM_STATE_QUEUE_HPP
 #define BEAM_STATE_QUEUE_HPP
-#include <optional>
+#include <boost/optional/optional.hpp>
+#include <boost/thread/mutex.hpp>
 #include "Beam/Queues/AbstractQueue.hpp"
 #include "Beam/Queues/PipeBrokenException.hpp"
 #include "Beam/Queues/Queues.hpp"
+#include "Beam/Threading/ConditionVariable.hpp"
 
 namespace Beam {
 
-  /*! \class StateQueue
-      \brief Stores only the most recent value pushed onto it.
-      \tparam T The data to store.
+  /**
+   * Stores only the most recent value pushed onto it.
+   * @param <T> The data to store.
    */
   template<typename T>
   class StateQueue : public AbstractQueue<T> {
     public:
-      using Source = T;
-      using Target = T;
+      using Target = typename AbstractQueue<T>::Target;
+      using Source = typename AbstractQueue<T>::Source;
 
-      //! Constructs a StateQueue.
+      /** Constructs a StateQueue. */
       StateQueue() = default;
 
-      virtual ~StateQueue();
+      /** Blocks until a value is available and returns it without popping. */
+      Source Peek() const;
 
-      virtual bool IsEmpty() const;
+      Source Pop() override;
 
-      virtual void Wait() const;
+      boost::optional<Source> TryPop() override;
 
-      virtual T Top() const;
+      void Push(const Target& value) override;
 
-      virtual void Push(const T& value);
+      void Push(Target&& value) override;
 
-      virtual void Push(T&& value);
+      void Break(const std::exception_ptr& exception) override;
 
-      virtual void Break(const std::exception_ptr& exception);
+      using AbstractQueue<T>::Break;
 
-      virtual void Pop();
-
-      //! For internal use by other Queues only.
-      virtual bool IsAvailable() const;
-
-      using QueueWriter<T>::Break;
-      using Threading::Waitable::Wait;
     private:
-      std::optional<T> m_value;
+      mutable boost::mutex m_mutex;
+      mutable Threading::ConditionVariable m_isAvailableCondition;
+      boost::optional<Target> m_value;
       std::exception_ptr m_breakException;
+
+      bool UnlockedIsAvailable() const;
   };
 
   template<typename T>
-  StateQueue<T>::~StateQueue() {
-    Break();
-  }
-
-  template<typename T>
-  bool StateQueue<T>::IsEmpty() const {
-    boost::lock_guard<boost::mutex> lock(this->GetMutex());
-    return !m_value.has_value();
-  }
-
-  template<typename T>
-  void StateQueue<T>::Wait() const {
-    boost::unique_lock<boost::mutex> lock(this->GetMutex());
-    this->Wait(lock);
-  }
-
-  template<typename T>
-  T StateQueue<T>::Top() const {
-    boost::unique_lock<boost::mutex> lock(this->GetMutex());
-    this->Wait(lock);
-    if(!m_value.has_value()) {
+  typename StateQueue<T>::Source StateQueue<T>::Peek() const {
+    auto lock = boost::unique_lock(m_mutex);
+    while(!UnlockedIsAvailable()) {
+      m_isAvailableCondition.wait(lock);
+    }
+    if(!m_value) {
       std::rethrow_exception(m_breakException);
     }
     return *m_value;
   }
 
   template<typename T>
-  void StateQueue<T>::Push(const T& value) {
-    boost::lock_guard<boost::mutex> lock(this->GetMutex());
-    if(m_breakException != nullptr) {
+  typename StateQueue<T>::Source StateQueue<T>::Pop() {
+    auto lock = boost::unique_lock(m_mutex);
+    while(!UnlockedIsAvailable()) {
+      m_isAvailableCondition.wait(lock);
+    }
+    if(!m_value) {
       std::rethrow_exception(m_breakException);
     }
-    if(m_value.has_value()) {
+    auto value = std::move(*m_value);
+    m_value = boost::none;
+    return value;
+  }
+
+  template<typename T>
+  boost::optional<typename StateQueue<T>::Source> StateQueue<T>::TryPop() {
+    auto lock = boost::lock_guard(m_mutex);
+    if(!m_value) {
+      return boost::none;
+    }
+    auto value = std::move(*m_value);
+    m_value = boost::none;
+    return value;
+  }
+
+  template<typename T>
+  void StateQueue<T>::Push(const Target& value) {
+    auto lock = boost::lock_guard(m_mutex);
+    if(m_breakException) {
+      std::rethrow_exception(m_breakException);
+    }
+    if(m_value) {
       *m_value = value;
     } else {
       m_value.emplace(value);
-      this->NotifyOne();
+      m_isAvailableCondition.notify_one();
     }
   }
 
   template<typename T>
-  void StateQueue<T>::Push(T&& value) {
-    boost::lock_guard<boost::mutex> lock(this->GetMutex());
-    if(m_breakException != nullptr) {
+  void StateQueue<T>::Push(Target&& value) {
+    auto lock = boost::lock_guard(m_mutex);
+    if(m_breakException) {
       std::rethrow_exception(m_breakException);
     }
-    if(m_value.has_value()) {
+    if(m_value) {
       *m_value = std::move(value);
     } else {
       m_value.emplace(std::move(value));
-      this->NotifyOne();
+      m_isAvailableCondition.notify_one();
     }
   }
 
   template<typename T>
   void StateQueue<T>::Break(const std::exception_ptr& exception) {
-    boost::lock_guard<boost::mutex> lock(this->GetMutex());
-    if(m_breakException != nullptr) {
+    auto lock = boost::lock_guard(m_mutex);
+    if(m_breakException) {
       return;
     }
     m_breakException = exception;
-    this->NotifyAll();
+    m_isAvailableCondition.notify_all();
   }
 
   template<typename T>
-  void StateQueue<T>::Pop() {
-    boost::lock_guard<boost::mutex> lock(this->GetMutex());
-    m_value = std::nullopt;
-  }
-
-  template<typename T>
-  bool StateQueue<T>::IsAvailable() const {
-    return m_value.has_value() || m_breakException != nullptr;
+  bool StateQueue<T>::UnlockedIsAvailable() const {
+    return m_value || m_breakException;
   }
 }
 

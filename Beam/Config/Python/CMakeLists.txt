@@ -1,20 +1,16 @@
 file(GLOB header_files ${BEAM_INCLUDE_PATH}/Beam/Python/*.hpp)
 file(GLOB source_files ${BEAM_SOURCE_PATH}/Python/*.cpp)
-
 include_directories(SYSTEM ${PYBIND11_INCLUDE_PATH})
 include_directories(SYSTEM ${PYTHON_INCLUDE_PATH})
-
 if(MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP")
 endif()
-
 add_library(Python SHARED ${header_files} ${source_files})
 set_source_files_properties(${header_files} PROPERTIES HEADER_FILE_ONLY TRUE)
 set_target_properties(Python PROPERTIES OUTPUT_NAME _beam)
 add_definitions(-DASPEN_USE_DLL)
 add_definitions(-DBEAM_BUILD_DLL)
 add_definitions(-DBEAM_ENABLE_STACK_PRINT)
-
 if(MSVC)
   add_definitions(-DHAVE_SNPRINTF)
   add_definitions(/wd4789)
@@ -23,12 +19,11 @@ if(MSVC)
 endif()
 if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX OR
     ${CMAKE_CXX_COMPILER_ID} STREQUAL "Clang")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=hidden")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=hidden -fsized-deallocation")
 endif()
 if(UNIX)
   set_target_properties(Python PROPERTIES PREFIX "")
 endif()
-
 target_link_libraries(Python
   debug ${ASPEN_PYTHON_LIBRARY_DEBUG_PATH}
   optimized ${ASPEN_PYTHON_LIBRARY_OPTIMIZED_PATH}
@@ -42,7 +37,6 @@ target_link_libraries(Python
   optimized ${PYTHON_LIBRARY_OPTIMIZED_PATH}
   debug ${YAML_LIBRARY_DEBUG_PATH}
   optimized ${YAML_LIBRARY_OPTIMIZED_PATH})
-
 if(UNIX)
   target_link_libraries(Python
     debug ${BOOST_CHRONO_LIBRARY_DEBUG_PATH}
@@ -59,7 +53,6 @@ endif()
 if(WIN32)
   target_link_libraries(Python Crypt32.lib)
 endif()
-
 install(TARGETS Python CONFIGURATIONS Debug
   DESTINATION ${LIB_INSTALL_DIRECTORY}/Debug)
 install(TARGETS Python CONFIGURATIONS Release RelWithDebInfo

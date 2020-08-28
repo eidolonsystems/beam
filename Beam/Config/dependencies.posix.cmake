@@ -23,12 +23,6 @@ set(BOOST_SYSTEM_LIBRARY_OPTIMIZED_PATH
 set(BOOST_THREAD_LIBRARY_DEBUG_PATH "${BOOST_DEBUG_PATH}/libboost_thread.a")
 set(BOOST_THREAD_LIBRARY_OPTIMIZED_PATH
   "${BOOST_OPTIMIZED_PATH}/libboost_thread.a")
-set(CPPUNIT_INCLUDE_PATH
-  "${PROJECT_BINARY_DIR}/Dependencies/cppunit-1.14.0/include")
-set(CPPUNIT_LIBRARY_DEBUG_PATH
-  "${PROJECT_BINARY_DIR}/Dependencies/cppunit-1.14.0/lib/libcppunit.a")
-set(CPPUNIT_LIBRARY_OPTIMIZED_PATH
-  "${PROJECT_BINARY_DIR}/Dependencies/cppunit-1.14.0/lib/libcppunit.a")
 set(CRYPTOPP_INCLUDE_PATH
   "${PROJECT_BINARY_DIR}/Dependencies/cryptopp820/include")
 set(CRYPTOPP_LIBRARY_DEBUG_PATH
@@ -36,11 +30,11 @@ set(CRYPTOPP_LIBRARY_DEBUG_PATH
 set(CRYPTOPP_LIBRARY_OPTIMIZED_PATH
   "${PROJECT_BINARY_DIR}/Dependencies/cryptopp820/lib/libcryptopp.a")
 set(MYSQL_INCLUDE_PATH
-  "${PROJECT_BINARY_DIR}/Dependencies/mysql-connector-c-6.1.11-src/include")
+  "${PROJECT_BINARY_DIR}/Dependencies/mariadb-connector-c-3.1.7/include")
 set(MYSQL_LIBRARY_DEBUG_PATH
-  "${PROJECT_BINARY_DIR}/Dependencies/mysql-connector-c-6.1.11-src/lib/libmysqlclient.a")
+  "${PROJECT_BINARY_DIR}/Dependencies/mariadb-connector-c-3.1.7/libmariadb/libmariadbclient.a")
 set(MYSQL_LIBRARY_OPTIMIZED_PATH
-  "${PROJECT_BINARY_DIR}/Dependencies/mysql-connector-c-6.1.11-src/lib/libmysqlclient.a")
+  "${PROJECT_BINARY_DIR}/Dependencies/mariadb-connector-c-3.1.7/libmariadb/libmariadbclient.a")
 set(OPEN_SSL_INCLUDE_PATH
   "${PROJECT_BINARY_DIR}/Dependencies/openssl-1.1.1c/include")
 set(OPEN_SSL_BASE_LIBRARY_DEBUG_PATH

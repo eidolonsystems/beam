@@ -1,105 +1,77 @@
-#ifndef BEAM_MULTIQUEUEWRITER_HPP
-#define BEAM_MULTIQUEUEWRITER_HPP
-#include <memory>
-#include <vector>
-#include <boost/thread/locks.hpp>
-#include "Beam/Queues/PipeBrokenException.hpp"
-#include "Beam/Queues/Publisher.hpp"
+#ifndef BEAM_MULTI_QUEUE_WRITER_HPP
+#define BEAM_MULTI_QUEUE_WRITER_HPP
+#include "Beam/Queues/CallbackQueue.hpp"
 #include "Beam/Queues/Queues.hpp"
-#include "Beam/Queues/QueueWriter.hpp"
-#include "Beam/Threading/RecursiveMutex.hpp"
+#include "Beam/Queues/Queue.hpp"
 
 namespace Beam {
 
-  /*! \class MultiQueueWriter
-      \brief Used to write data to multiple Queues simultaneously.
-      \tparam T The data to store in the Queue.
+  /**
+   * Implements a multiple writer, single reader AbstractQueue.
+   * @param <T> The type to push and pop.
    */
   template<typename T>
-  class MultiQueueWriter : public QueueWriter<T>, public Publisher<T> {
+  class MultiQueueWriter final : public AbstractQueue<T> {
     public:
-      using Source = T;
+      using Target = typename AbstractQueue<T>::Target;
+      using Source = typename AbstractQueue<T>::Source;
 
-      //! Constructs a MultiQueueWriter.
+      /** Constructs a MultiQueueWriter. */
       MultiQueueWriter() = default;
 
-      virtual ~MultiQueueWriter() override final;
+      /** Returns a QueueWriter for pushing values onto this queue. */
+      auto GetWriter();
 
-      virtual void With(const std::function<void ()>& f) const override final;
+      Source Pop() override;
 
-      virtual void Push(const T& value) override final;
+      boost::optional<Source> TryPop() override;
 
-      virtual void Push(T&& value) override final;
+      void Break(const std::exception_ptr& e) override;
 
-      virtual void Break(const std::exception_ptr& e) override final;
+      void Push(const Target& value) override;
 
-      virtual void Monitor(
-        std::shared_ptr<QueueWriter<T>> queue) const override final;
+      void Push(Target&& value) override;
 
-      using QueueWriter<T>::Break;
+      using AbstractQueue<T>::Break;
+
     private:
-      mutable Threading::RecursiveMutex m_mutex;
-      std::exception_ptr m_exception;
-      mutable std::vector<std::weak_ptr<QueueWriter<T>>> m_queues;
+      Queue<Source> m_queue;
+      CallbackQueue m_callbacks;
   };
 
   template<typename T>
-  MultiQueueWriter<T>::~MultiQueueWriter() {
-    Break();
+  auto MultiQueueWriter<T>::GetWriter() {
+    return m_callbacks.GetSlot<Source>(
+      [=] (auto&& value) {
+        m_queue.Push(std::forward<decltype(value)>(value));
+      });
   }
 
   template<typename T>
-  void MultiQueueWriter<T>::With(const std::function<void ()>& f) const {
-    boost::lock_guard<Threading::RecursiveMutex> lock(m_mutex);
-    f();
+  typename MultiQueueWriter<T>::Source MultiQueueWriter<T>::Pop()  {
+    return m_queue.Pop();
   }
 
   template<typename T>
-  void MultiQueueWriter<T>::Push(const T& value) {
-    boost::lock_guard<Threading::RecursiveMutex> lock(m_mutex);
-    auto i = m_queues.begin();
-    while(i != m_queues.end()) {
-      auto queue(i->lock());
-      if(queue != nullptr) {
-        try {
-          queue->Push(value);
-          ++i;
-        } catch(const PipeBrokenException&) {
-          i = m_queues.erase(i);
-        }
-      } else {
-        i = m_queues.erase(i);
-      }
-    }
-  }
-
-  template<typename T>
-  void MultiQueueWriter<T>::Push(T&& value) {
-    Push(static_cast<const T&>(value));
+  boost::optional<typename MultiQueueWriter<T>::Source>
+      MultiQueueWriter<T>::TryPop()  {
+    return m_queue.TryPop();
   }
 
   template<typename T>
   void MultiQueueWriter<T>::Break(const std::exception_ptr& e) {
-    boost::lock_guard<Threading::RecursiveMutex> lock(m_mutex);
-    m_exception = e;
-    for(auto& i : m_queues) {
-      auto queue = i.lock();
-      if(queue != nullptr) {
-        queue->Break(e);
-      }
-    }
-    m_queues.clear();
+    m_callbacks.Break(e);
+    m_queue.Break(e);
   }
 
   template<typename T>
-  void MultiQueueWriter<T>::Monitor(
-      std::shared_ptr<QueueWriter<T>> queue) const {
-    boost::lock_guard<Threading::RecursiveMutex> lock(m_mutex);
-    if(m_exception == nullptr) {
-      m_queues.push_back(queue);
-    } else {
-      queue->Break(m_exception);
-    }
+  void MultiQueueWriter<T>::Push(const Target& value) {
+    m_queue.Push(value);
+  }
+
+  template<typename T>
+  void MultiQueueWriter<T>::Push(Target&& value) {
+    m_queue.Push(std::move(value));
   }
 }
 

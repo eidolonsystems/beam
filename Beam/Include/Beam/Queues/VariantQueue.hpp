@@ -1,5 +1,5 @@
-#ifndef BEAM_VARIANTQUEUE_HPP
-#define BEAM_VARIANTQUEUE_HPP
+#ifndef BEAM_VARIANT_QUEUE_HPP
+#define BEAM_VARIANT_QUEUE_HPP
 #include <boost/preprocessor/comma_if.hpp>
 #include <boost/preprocessor/empty.hpp>
 #include <boost/preprocessor/facilities/intercept.hpp>
@@ -23,7 +23,7 @@ namespace Beam {
     BOOST_PP_COMMA_IF(n) public QueueWriter<A##n>
 
   #define BEAM_DECLARE_PUSH(z, n, q)                                           \
-    virtual void Push(const A##n& value) {                                     \
+    void Push(const A##n& value) override {                                    \
       m_queue.Push(value);                                                     \
     }
 
@@ -33,36 +33,23 @@ namespace Beam {
       BOOST_PP_REPEAT(n, BEAM_INHERIT_QUEUE, BOOST_PP_EMPTY),                  \
       public QueueReader<boost::variant<BOOST_PP_ENUM_PARAMS(n, A)>> {         \
     public:                                                                    \
-      typedef typename QueueReader<                                            \
-        boost::variant<BOOST_PP_ENUM_PARAMS(n, A)>>::Target Target;            \
+      using Source = typename QueueReader<                                     \
+        boost::variant<BOOST_PP_ENUM_PARAMS(n, A)>>::Source;                   \
                                                                                \
-      VariantQueue() {}                                                        \
+      VariantQueue() = default;                                                \
                                                                                \
-      virtual ~VariantQueue() {                                                \
-        Break();                                                               \
-      }                                                                        \
-                                                                               \
-      virtual bool IsEmpty() const {                                           \
-        return m_queue.IsEmpty();                                              \
-      }                                                                        \
-                                                                               \
-      virtual Target Top() const {                                             \
-        return m_queue.Top();                                                  \
-      }                                                                        \
-                                                                               \
-      virtual void Pop() {                                                     \
+      Source Pop() override {                                                  \
         return m_queue.Pop();                                                  \
+      }                                                                        \
+                                                                               \
+      boost::optional<Source> TryPop() override {                              \
+        return m_queue.TryPop();                                               \
       }                                                                        \
                                                                                \
       BOOST_PP_REPEAT(n, BEAM_DECLARE_PUSH, BOOST_PP_EMPTY);                   \
                                                                                \
-      virtual void Break(const std::exception_ptr& e) {                        \
+      void Break(const std::exception_ptr& e) override {                       \
         m_queue.Break(e);                                                      \
-      }                                                                        \
-                                                                               \
-    protected:                                                                 \
-      virtual bool IsAvailable() const {                                       \
-        return m_queue.IsAvailable();                                          \
       }                                                                        \
                                                                                \
     private:                                                                   \

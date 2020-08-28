@@ -1,11 +1,11 @@
 #ifndef BEAM_SERVLETTEMPLATESERVLET_HPP
 #define BEAM_SERVLETTEMPLATESERVLET_HPP
 #include <boost/noncopyable.hpp>
+#include "Beam/Collections/SynchronizedList.hpp"
 #include "Beam/Pointers/LocalPtr.hpp"
 #include "Beam/Queues/RoutineTaskQueue.hpp"
 #include "Beam/Services/ServiceProtocolServlet.hpp"
 #include "Beam/Threading/LiveTimer.hpp"
-#include "Beam/Utilities/SynchronizedList.hpp"
 #include "ServletTemplate/Services.hpp"
 
 namespace Beam {
@@ -17,8 +17,8 @@ namespace Beam {
   template<typename ContainerType>
   class ServletTemplateServlet : private boost::noncopyable {
     public:
-      typedef ContainerType Container;
-      typedef typename Container::ServiceProtocolClient ServiceProtocolClient;
+      using Container = ContainerType;
+      using ServiceProtocolClient = typename Container::ServiceProtocolClient;
 
       //! Constructs a ServletTemplateServlet.
       ServletTemplateServlet();
@@ -56,7 +56,7 @@ namespace Beam {
     using Session = NullType;
     template<typename ContainerType>
     struct apply {
-      typedef ServletTemplateServlet<ContainerType> type;
+      using type = ServletTemplateServlet<ContainerType>;
     };
   };
 

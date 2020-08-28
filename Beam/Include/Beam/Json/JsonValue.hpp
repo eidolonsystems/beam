@@ -8,7 +8,6 @@
 #include <boost/variant/get.hpp>
 #include <boost/variant/variant.hpp>
 #include "Beam/Json/Json.hpp"
-#include "Beam/Utilities/ToString.hpp"
 #include "Beam/Utilities/VariantLambdaVisitor.hpp"
 
 namespace Beam {
@@ -26,8 +25,8 @@ namespace Beam {
   };
 
 namespace Details {
-  typedef boost::variant<std::string, JsonNull, bool, double, JsonObject,
-    std::vector<JsonValue>> JsonVariant;
+  using JsonVariant = boost::variant<std::string, JsonNull, bool, double,
+    JsonObject, std::vector<JsonValue>>;
 }
 
   /*! \class JsonValue
@@ -330,7 +329,7 @@ namespace Details {
       [&] (double value) {
         double temp;
         if(std::modf(value, &temp) != 0) {
-          sink << ToString(value);
+          sink << std::to_string(value);
         } else {
           sink << static_cast<int>(value);
         }

@@ -1,141 +1,134 @@
-#ifndef BEAM_CALLBACKQUEUE_HPP
-#define BEAM_CALLBACKQUEUE_HPP
+#ifndef BEAM_CALLBACK_QUEUE_HPP
+#define BEAM_CALLBACK_QUEUE_HPP
 #include <vector>
-#include "Beam/Queues/CallbackWriterQueue.hpp"
+#include "Beam/Queues/CallbackQueueWriter.hpp"
 #include "Beam/Queues/Queues.hpp"
+#include "Beam/Queues/ScopedBaseQueue.hpp"
+#include "Beam/Queues/ScopedQueueWriter.hpp"
 #include "Beam/Threading/TaskRunner.hpp"
 
 namespace Beam {
 
-  /*! \class CallbackQueue
-      \brief Used to translate Queue pushes into callbacks.
-   */
+  /** Used to translate QueueWriter pushes into callbacks. */
   class CallbackQueue : public QueueWriter<std::function<void ()>> {
     public:
 
-      //! The type being pushed.
-      using Source = QueueWriter<std::function<void ()>>::Source;
+      /** The type being pushed. */
+      using Target = QueueWriter<std::function<void ()>>::Target;
 
-      //! Constructs a CallbackQueue.
+      /** Constructs a CallbackQueue. */
       CallbackQueue();
 
       ~CallbackQueue();
 
-      //! Returns a slot Queue.
-      /*!
-        \param slot The slot to call when a new value is pushed.
-        \return A Queue that translates a push into a slot invocation.
-      */
-      template<typename T>
-      std::shared_ptr<CallbackWriterQueue<T>> GetSlot(
-        const std::function<void (const T& value)>& slot);
+      /**
+       * Returns a slot.
+       * @param callback The callback when a new value is pushed.
+       * @return A queue that translates a push into a callback.
+       */
+      template<typename T, typename F>
+      auto GetSlot(F&& callback);
 
-      //! Returns a slot Queue.
-      /*!
-        \param slot The slot to call when a new value is pushed.
-        \param breakSlot The slot to call when the Queue is broken.
-        \return A Queue that translates a push into a slot invocation.
-      */
-      template<typename T>
-      std::shared_ptr<CallbackWriterQueue<T>> GetSlot(
-        const std::function<void (const T& value)>& slot,
-        const std::function<void (const std::exception_ptr& e)>& breakSlot);
+      /**
+       * Returns a slot.
+       * @param callback The callback when a new value is pushed.
+       * @param breakCallback The callback when the queue is broken.
+       * @return A queue that translates a push into a callback.
+       */
+      template<typename T, typename F, typename B>
+      auto GetSlot(F&& callback, B&& breakCallback);
 
-      virtual void Push(const Source& value);
+      void Push(const Target& value) override;
 
-      virtual void Push(Source&& value);
+      void Push(Target&& value) override;
 
-      virtual void Break(const std::exception_ptr& exception);
+      void Break(const std::exception_ptr& exception) override;
 
       using QueueWriter<std::function<void ()>>::Break;
+
     private:
+      mutable std::mutex m_mutex;
+      std::exception_ptr m_exception;
       bool m_isBroken;
-      std::vector<std::shared_ptr<BaseQueue>> m_queues;
+      std::vector<ScopedBaseQueue<>> m_queues;
       Threading::TaskRunner m_tasks;
+
+      void Rethrow();
   };
 
   inline CallbackQueue::CallbackQueue()
-      : m_isBroken(false) {}
+    : m_isBroken(false) {}
 
   inline CallbackQueue::~CallbackQueue() {
-    if(m_isBroken) {
-      return;
-    }
-    m_isBroken = true;
-    for(auto& queue : m_queues) {
-      queue->Break();
-    }
+    Break();
   }
 
-  template<typename T>
-  std::shared_ptr<CallbackWriterQueue<T>> CallbackQueue::GetSlot(
-      const std::function<void (const T& value)>& slot) {
-    return this->GetSlot<T>(slot, [] (const std::exception_ptr&) {});
+  template<typename T, typename F>
+  auto CallbackQueue::GetSlot(F&& callback) {
+    return this->GetSlot<T>(std::forward<F>(callback),
+      [] (const std::exception_ptr&) {});
   }
 
-  template<typename T>
-  std::shared_ptr<CallbackWriterQueue<T>> CallbackQueue::GetSlot(
-      const std::function<void (const T& value)>& slot,
-      const std::function<void (const std::exception_ptr& e)>& breakSlot) {
-    auto queue = std::make_shared<CallbackWriterQueue<T>>(
-      [=] (const T& value) {
+  template<typename T, typename F, typename B>
+  auto CallbackQueue::GetSlot(F&& callback, B&& breakCallback) {
+    auto queue = MakeCallbackQueueWriter<T>(
+      [=, callback = std::forward<F>(callback)] (auto&& value) {
         m_tasks.Add(
-          [=] {
-            if(m_isBroken) {
-              return;
-            }
-            slot(value);
+          [callback = &callback,
+              value = std::forward<decltype(value)>(value)] () mutable {
+            (*callback)(std::forward<decltype(value)>(value));
           });
       },
-      [=] (const std::exception_ptr& e) {
+      [=, breakCallback = std::forward<B>(breakCallback)] (
+          const std::exception_ptr& e) {
         m_tasks.Add(
-          [=] {
-            breakSlot(e);
+          [=, breakCallback = &breakCallback] {
+            (*breakCallback)(e);
           });
       });
     m_tasks.Add(
-      [=] {
+      [=] () mutable {
         if(m_isBroken) {
-          queue->Break();
+          queue->Break(m_exception);
         } else {
           m_queues.push_back(std::move(queue));
         }
       });
-    return queue;
+    return ScopedQueueWriter(std::move(queue));
   }
 
-  inline void CallbackQueue::Push(const Source& value) {
-    m_tasks.Add(
-      [=] {
-        if(m_isBroken) {
-          return;
-        }
-        value();
-      });
+  inline void CallbackQueue::Push(const Target& value) {
+    Rethrow();
+    m_tasks.Add(value);
   }
 
-  inline void CallbackQueue::Push(Source&& value) {
-    m_tasks.Add(
-      [=, value = std::move(value)] {
-        if(m_isBroken) {
-          return;
-        }
-        value();
-      });
+  inline void CallbackQueue::Push(Target&& value) {
+    Rethrow();
+    m_tasks.Add(std::move(value));
   }
 
   inline void CallbackQueue::Break(const std::exception_ptr& exception) {
+    {
+      auto lock = std::lock_guard(m_mutex);
+      if(m_exception) {
+        return;
+      }
+      m_exception = exception;
+    }
     m_tasks.Add(
-      [&] {
-        if(m_isBroken) {
-          return;
-        }
+      [=] {
         m_isBroken = true;
         for(auto& queue : m_queues) {
-          queue->Break();
+          queue.Break(m_exception);
         }
-        m_queues.clear();
       });
+  }
+
+  inline void CallbackQueue::Rethrow() {
+    auto lock = std::lock_guard(m_mutex);
+    if(m_exception) {
+      std::rethrow_exception(m_exception);
+    }
   }
 }
 

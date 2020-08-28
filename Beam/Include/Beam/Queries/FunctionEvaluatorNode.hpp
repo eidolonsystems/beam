@@ -10,10 +10,10 @@
 #include <boost/mpl/empty.hpp>
 #include <boost/mpl/front.hpp>
 #include <boost/mpl/pop_front.hpp>
-#include "Beam/Pointers/UniquePtr.hpp"
 #include "Beam/Queries/EvaluatorNode.hpp"
 #include "Beam/Queries/Queries.hpp"
 #include "Beam/Utilities/ApplyTuple.hpp"
+#include "Beam/Utilities/Casts.hpp"
 #include "Beam/Utilities/Functional.hpp"
 
 namespace Beam {
@@ -63,7 +63,7 @@ namespace Details {
 
     template<typename T>
     void operator ()(std::unique_ptr<EvaluatorNode<T>>& parameter) const {
-      parameter = UniqueStaticCast<EvaluatorNode<T>>(
+      parameter = StaticCast<std::unique_ptr<EvaluatorNode<T>>>(
         std::move((*m_args)[m_index]));
       ++m_index;
     }

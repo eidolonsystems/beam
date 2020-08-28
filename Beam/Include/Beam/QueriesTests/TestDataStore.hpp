@@ -8,16 +8,16 @@
 #include "Beam/Queries/IndexedValue.hpp"
 #include "Beam/Queries/SequencedValue.hpp"
 #include "Beam/QueriesTests/QueriesTests.hpp"
-#include "Beam/Queues/MultiQueueWriter.hpp"
 #include "Beam/Queues/QueueReader.hpp"
+#include "Beam/Queues/QueueWriterPublisher.hpp"
 #include "Beam/Routines/Async.hpp"
 
 namespace Beam::Queries::Tests {
 
   /**
    * Implements a DataStore for testing purposes by reifying operations.
-   * @param Q The type of query used to load values.
-   * @param V The type value to store.
+   * @param <Q> The type of query used to load values.
+   * @param <V> The type value to store.
    */
   template<typename Q, typename V>
   class TestDataStore : private boost::noncopyable {
@@ -90,7 +90,7 @@ namespace Beam::Queries::Tests {
 
     private:
       IO::OpenState m_openState;
-      MultiQueueWriter<std::shared_ptr<Operation>> m_operationPublisher;
+      QueueWriterPublisher<std::shared_ptr<Operation>> m_operationPublisher;
 
       void Shutdown();
   };
@@ -107,8 +107,7 @@ namespace Beam::Queries::Tests {
     Routines::Spawn(
       [&] {
         while(true) {
-          auto operation = operations->Top();
-          operations->Pop();
+          auto operation = operations->Pop();
           if(auto openOperation = std::get_if<
               typename TestDataStore<Q, V>::OpenOperation>(&*operation)) {
             openOperation->m_result.SetResult();

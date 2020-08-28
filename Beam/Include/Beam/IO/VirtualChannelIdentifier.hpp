@@ -1,10 +1,12 @@
 #ifndef BEAM_VIRTUALCHANNELIDENTIFIER_HPP
 #define BEAM_VIRTUALCHANNELIDENTIFIER_HPP
+#include <ostream>
 #include <boost/noncopyable.hpp>
 #include "Beam/IO/IO.hpp"
 #include "Beam/IO/Channel.hpp"
 #include "Beam/Pointers/Dereference.hpp"
 #include "Beam/Pointers/LocalPtr.hpp"
+#include "Beam/Utilities/Streamable.hpp"
 
 namespace Beam {
 namespace IO {
@@ -12,11 +14,10 @@ namespace IO {
   /*! \class VirtualChannelIdentifier
       \brief Provides a pure virtual interface to a ChannelIdentifier.
    */
-  class VirtualChannelIdentifier : private boost::noncopyable {
+  class VirtualChannelIdentifier : public Streamable,
+      private boost::noncopyable {
     public:
       virtual ~VirtualChannelIdentifier() = default;
-
-      virtual std::string ToString() const = 0;
 
     protected:
 
@@ -50,7 +51,8 @@ namespace IO {
       //! Returns the ChannelIdentifier being wrapped.
       ChannelIdentifier& GetIdentifier();
 
-      virtual std::string ToString() const override;
+    protected:
+      std::ostream& ToStream(std::ostream& out) const override;
 
     private:
       GetOptionalLocalPtr<ChannelIdentifierType> m_identifier;
@@ -71,8 +73,8 @@ namespace IO {
   template<typename ChannelIdentifierType>
   template<typename ChannelIdentifierForward>
   WrapperChannelIdentifier<ChannelIdentifierType>::WrapperChannelIdentifier(
-      ChannelIdentifierForward&& identifier)
-      : m_identifier{std::forward<ChannelIdentifierForward>(identifier)} {}
+    ChannelIdentifierForward&& identifier)
+    : m_identifier{std::forward<ChannelIdentifierForward>(identifier)} {}
 
   template<typename ChannelIdentifierType>
   const typename WrapperChannelIdentifier<
@@ -88,9 +90,9 @@ namespace IO {
   }
 
   template<typename ChannelIdentifierType>
-  std::string WrapperChannelIdentifier<ChannelIdentifierType>::
-      ToString() const {
-    return m_identifier->ToString();
+  std::ostream& WrapperChannelIdentifier<ChannelIdentifierType>::ToStream(
+      std::ostream& out) const {
+    return out << *m_identifier;
   }
 }
 

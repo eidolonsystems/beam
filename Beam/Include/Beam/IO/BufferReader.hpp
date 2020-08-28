@@ -1,6 +1,7 @@
 #ifndef BEAM_BUFFERREADER_HPP
 #define BEAM_BUFFERREADER_HPP
 #include <cstring>
+#include <type_traits>
 #include <boost/throw_exception.hpp>
 #include "Beam/IO/Buffer.hpp"
 #include "Beam/IO/EndOfFileException.hpp"
@@ -17,7 +18,7 @@ namespace IO {
   template<typename BufferType>
   class BufferReader : private boost::noncopyable {
     public:
-      typedef BufferType Buffer;
+      using Buffer = BufferType;
 
       //! Constructs a BufferReader from a Buffer.
       /*!
@@ -56,6 +57,9 @@ namespace IO {
       const char* m_readIterator;
       std::size_t m_readRemaining;
   };
+
+  template<typename BF>
+  BufferReader(BF&& source) -> BufferReader<std::decay_t<BF>>;
 
   template<typename BufferType>
   template<typename BufferForward>
