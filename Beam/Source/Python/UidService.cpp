@@ -27,10 +27,6 @@ namespace {
         "load_next_uid", LoadNextUid);
     }
 
-    void Open() override {
-      PYBIND11_OVERLOAD_PURE_NAME(void, VirtualUidClient, "open", Open);
-    }
-
     void Close() override {
       PYBIND11_OVERLOAD_PURE_NAME(void, VirtualUidClient, "close", Close);
     }
@@ -69,13 +65,12 @@ void Beam::Python::ExportApplicationUidClient(pybind11::module& module) {
           });
         return MakeToPythonUidClient(
           std::make_unique<PythonApplicationUidClient>(sessionBuilder));
-      }));
+      }), call_guard<GilRelease>());
 }
 
 void Beam::Python::ExportUidClient(pybind11::module& module) {
   class_<VirtualUidClient, TrampolineUidClient>(module, "UidClient")
     .def("load_next_uid", &VirtualUidClient::LoadNextUid)
-    .def("open", &VirtualUidClient::Open)
     .def("close", &VirtualUidClient::Close);
 }
 
@@ -89,11 +84,14 @@ void Beam::Python::ExportUidService(pybind11::module& module) {
 
 void Beam::Python::ExportUidServiceTestEnvironment(pybind11::module& module) {
   class_<UidServiceTestEnvironment>(module, "UidServiceTestEnvironment")
-    .def(init())
-    .def("open", &UidServiceTestEnvironment::Open, call_guard<GilRelease>())
+    .def(init(), call_guard<GilRelease>())
+    .def("__del__",
+      [] (UidServiceTestEnvironment& self) {
+        self.Close();
+      }, call_guard<GilRelease>())
     .def("close", &UidServiceTestEnvironment::Close, call_guard<GilRelease>())
     .def("build_client",
       [] (UidServiceTestEnvironment& self) {
         return MakeToPythonUidClient(self.BuildClient());
-      });
+      }, call_guard<GilRelease>());
 }

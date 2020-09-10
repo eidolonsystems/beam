@@ -46,7 +46,6 @@ TEST_SUITE("ServiceProtocolClient") {
     auto callbackCount = 0;
     auto serverTask = RoutineHandler(Spawn(
       [&] {
-        server.Open();
         auto clientChannel = server.Accept();
         auto client = ServerServiceProtocolClient(std::move(clientChannel),
           Initialize());
@@ -54,7 +53,6 @@ TEST_SUITE("ServiceProtocolClient") {
         VoidService::AddRequestSlot(Store(client.GetSlots()),
           std::bind(OnVoidRequest, std::placeholders::_1, std::placeholders::_2,
           &callbackCount));
-        client.Open();
         try {
           while(true) {
             auto message = client.ReadMessage();
@@ -69,10 +67,9 @@ TEST_SUITE("ServiceProtocolClient") {
       }));
     auto clientTask = RoutineHandler(Spawn(
       [&] {
-        auto client = ClientServiceProtocolClient(
-          Initialize(std::string("client"), Ref(server)), Initialize());
+        auto client = ClientServiceProtocolClient(Initialize("client", server),
+          Initialize());
         RegisterTestServices(Store(client.GetSlots()));
-        client.Open();
         client.SendRequest<VoidService>(123);
         client.SendRequest<VoidService>(321);
         client.Close();
@@ -87,7 +84,6 @@ TEST_SUITE("ServiceProtocolClient") {
     auto callbackCount = 0;
     auto serverTask = RoutineHandler(Spawn(
       [&] {
-        server.Open();
         auto clientChannel = server.Accept();
         auto client = ServerServiceProtocolClient(std::move(clientChannel),
           Initialize());
@@ -95,7 +91,6 @@ TEST_SUITE("ServiceProtocolClient") {
         VoidService::AddRequestSlot(Store(client.GetSlots()), std::bind(
           OnExceptionVoidRequest, std::placeholders::_1, std::placeholders::_2,
           &callbackCount));
-        client.Open();
         try {
           while(true) {
             auto message = client.ReadMessage();
@@ -110,10 +105,9 @@ TEST_SUITE("ServiceProtocolClient") {
       }));
     auto clientTask = RoutineHandler(Spawn(
       [&] {
-        auto client = ClientServiceProtocolClient(
-          Initialize(std::string("client"), Ref(server)), Initialize());
+        auto client = ClientServiceProtocolClient(Initialize("client", server),
+          Initialize());
         RegisterTestServices(Store(client.GetSlots()));
-        client.Open();
         REQUIRE_THROWS_AS(client.SendRequest<VoidService>(123),
           ServiceRequestException);
         client.Close();
@@ -126,9 +120,8 @@ TEST_SUITE("ServiceProtocolClient") {
   TEST_CASE("request_before_connection_closed") {
     auto server = TestServerConnection();
     auto callbackCount = 0;
-    RoutineHandler serverTask = Spawn(
+    auto serverTask = RoutineHandler(Spawn(
       [&] {
-        server.Open();
         auto clientChannel = server.Accept();
         auto client = ServerServiceProtocolClient(std::move(clientChannel),
           Initialize());
@@ -136,7 +129,6 @@ TEST_SUITE("ServiceProtocolClient") {
         VoidService::AddRequestSlot(Store(client.GetSlots()), std::bind(
           OnExceptionVoidRequest, std::placeholders::_1, std::placeholders::_2,
           &callbackCount));
-        client.Open();
         try {
           while(true) {
             auto message = client.ReadMessage();
@@ -148,15 +140,14 @@ TEST_SUITE("ServiceProtocolClient") {
         } catch(const ServiceRequestException&) {
         } catch(const EndOfFileException&) {
         }
-      });
+      }));
     auto clientTask = RoutineHandler(Spawn(
       [&] {
-        auto clientChannel = ClientChannel(std::string("client"), Ref(server));
+        auto clientChannel = ClientChannel("client", server);
         auto client = ServiceProtocolClient<MessageProtocol<ClientChannel*,
           BinarySender<SharedBuffer>, NullEncoder>, TriggerTimer>(
           &clientChannel, Initialize());
         RegisterTestServices(Store(client.GetSlots()));
-        client.Open();
         REQUIRE_THROWS_AS(client.SendRequest<VoidService>(123),
           ServiceRequestException);
         client.Close();
@@ -169,18 +160,16 @@ TEST_SUITE("ServiceProtocolClient") {
     auto server = TestServerConnection();
     auto serverTask = RoutineHandler(Spawn(
       [&] {
-        server.Open();
         auto clientChannel = server.Accept();
         clientChannel->GetConnection().Close();
       }));
     auto clientTask = RoutineHandler(Spawn(
       [&] {
-        auto clientChannel = ClientChannel(std::string("client"), Ref(server));
+        auto clientChannel = ClientChannel("client", server);
         auto client = ServiceProtocolClient<MessageProtocol<ClientChannel*,
           BinarySender<SharedBuffer>, NullEncoder>, TriggerTimer>(
           &clientChannel, Initialize());
         RegisterTestServices(Store(client.GetSlots()));
-        client.Open();
         clientChannel.GetConnection().Close();
         REQUIRE_THROWS_AS(client.SendRequest<VoidService>(123),
           ServiceRequestException);

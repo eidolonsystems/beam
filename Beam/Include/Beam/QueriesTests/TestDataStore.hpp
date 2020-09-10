@@ -3,7 +3,6 @@
 #include <memory>
 #include <variant>
 #include <vector>
-#include <boost/noncopyable.hpp>
 #include "Beam/IO/OpenState.hpp"
 #include "Beam/Queries/IndexedValue.hpp"
 #include "Beam/Queries/SequencedValue.hpp"
@@ -20,7 +19,7 @@ namespace Beam::Queries::Tests {
    * @param <V> The type value to store.
    */
   template<typename Q, typename V>
-  class TestDataStore : private boost::noncopyable {
+  class TestDataStore {
     public:
 
       /** The type of query used to load values. */
@@ -59,16 +58,8 @@ namespace Beam::Queries::Tests {
         Routines::Eval<void> m_result;
       };
 
-      /** Stores an open operation. */
-      struct OpenOperation {
-
-        /** Used to indicate the result of the open operation. */
-        Routines::Eval<void> m_result;
-      };
-
       /** Represents an operation that can be performed on this DataStore. */
-      using Operation = std::variant<LoadOperation, StoreOperation,
-        OpenOperation>;
+      using Operation = std::variant<LoadOperation, StoreOperation>;
 
       /** Constructs a TestDataStore. */
       TestDataStore() = default;
@@ -84,39 +75,15 @@ namespace Beam::Queries::Tests {
 
       void Store(const std::vector<IndexedValue>& values);
 
-      void Open();
-
       void Close();
 
     private:
       IO::OpenState m_openState;
       QueueWriterPublisher<std::shared_ptr<Operation>> m_operationPublisher;
 
-      void Shutdown();
+      TestDataStore(const TestDataStore&) = delete;
+      TestDataStore& operator =(const TestDataStore&) = delete;
   };
-
-  /**
-   * Opens a TestDataStore.
-   * @param dataStore - The TestDataStore to open.
-   */
-  template<typename Q, typename V>
-  void Open(TestDataStore<Q, V>& dataStore) {
-    auto operations = std::make_shared<
-      Queue<std::shared_ptr<typename TestDataStore<Q, V>::Operation>>>();
-    dataStore.GetOperationPublisher().Monitor(operations);
-    Routines::Spawn(
-      [&] {
-        while(true) {
-          auto operation = operations->Pop();
-          if(auto openOperation = std::get_if<
-              typename TestDataStore<Q, V>::OpenOperation>(&*operation)) {
-            openOperation->m_result.SetResult();
-            break;
-          }
-        }
-      });
-    dataStore.Open();
-  }
 
   template<typename Q, typename V>
   TestDataStore<Q, V>::~TestDataStore() {
@@ -155,34 +122,8 @@ namespace Beam::Queries::Tests {
   }
 
   template<typename Q, typename V>
-  void TestDataStore<Q, V>::Open() {
-    if(m_openState.SetOpening()) {
-      return;
-    }
-    try {
-      auto async = Routines::Async<void>();
-      auto operation = std::make_shared<Operation>(
-        OpenOperation{async.GetEval()});
-      m_operationPublisher.Push(operation);
-      async.Get();
-    } catch(const std::exception&) {
-      m_openState.SetOpenFailure();
-      Shutdown();
-    }
-    m_openState.SetOpen();
-  }
-
-  template<typename Q, typename V>
   void TestDataStore<Q, V>::Close() {
-    if(m_openState.SetClosing()) {
-      return;
-    }
-    Shutdown();
-  }
-
-  template<typename Q, typename V>
-  void TestDataStore<Q, V>::Shutdown() {
-    m_openState.SetClosed();
+    m_openState.Close();
   }
 }
 

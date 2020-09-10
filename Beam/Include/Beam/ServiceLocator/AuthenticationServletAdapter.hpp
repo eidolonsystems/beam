@@ -1,7 +1,6 @@
 #ifndef BEAM_AUTHENTICATION_SERVLET_ADAPTER_HPP
 #define BEAM_AUTHENTICATION_SERVLET_ADAPTER_HPP
 #include <type_traits>
-#include <boost/noncopyable.hpp>
 #include "Beam/IO/Connection.hpp"
 #include "Beam/IO/OpenState.hpp"
 #include "Beam/Pointers/LocalPtr.hpp"
@@ -21,7 +20,7 @@ namespace Beam::ServiceLocator {
    *            ServiceLocator.
    */
   template<typename C, typename S, typename L>
-  class AuthenticationServletAdapter : private boost::noncopyable {
+  class AuthenticationServletAdapter {
     public:
       using Container = C;
       using ServiceProtocolClient = typename Container::ServiceProtocolClient;
@@ -45,8 +44,6 @@ namespace Beam::ServiceLocator {
 
       void HandleClientClosed(ServiceProtocolClient& client);
 
-      void Open();
-
       void Close();
 
     private:
@@ -54,7 +51,10 @@ namespace Beam::ServiceLocator {
       GetOptionalLocalPtr<S> m_servlet;
       IO::OpenState m_openState;
 
-      void Shutdown();
+      AuthenticationServletAdapter(
+        const AuthenticationServletAdapter&) = delete;
+      AuthenticationServletAdapter& operator =(
+        const AuthenticationServletAdapter&) = delete;
       void OnSendSessionIdRequest(
         Services::RequestToken<ServiceProtocolClient, SendSessionIdService>&
         request, unsigned int key, const std::string& sessionId);
@@ -72,13 +72,12 @@ namespace Beam::ServiceLocator {
 
   template<typename S, typename L, typename P = LocalPointerPolicy>
   struct MetaAuthenticationServletAdapter {
-    static constexpr bool SupportsParallelism =
+    static constexpr auto SupportsParallelism =
       Services::SupportsParallelism<S>::value;
     using Session = AuthenticationServletSession<typename S::Session>;
     template<typename C>
     struct apply {
-      using type = AuthenticationServletAdapter<C,
-        typename P::template apply<
+      using type = AuthenticationServletAdapter<C, typename P::template apply<
         typename S::template apply<C>::type>::type, L>;
     };
   };
@@ -112,11 +111,10 @@ namespace Beam::ServiceLocator {
     auto serviceRequestPreHook = std::bind(
       &AuthenticationServletAdapter::OnServiceRequest, this,
       std::placeholders::_1);
-    servletSlots.Apply(
-      [&] (auto& name, auto& slot) {
-        slot.AddPreHook(serviceRequestPreHook);
-      });
-    slots->Acquire(std::move(servletSlots));
+    servletSlots.Apply([&] (auto& name, auto& slot) {
+      slot.AddPreHook(serviceRequestPreHook);
+    });
+    slots->Add(std::move(servletSlots));
   }
 
   template<typename C, typename S, typename L>
@@ -132,31 +130,12 @@ namespace Beam::ServiceLocator {
   }
 
   template<typename C, typename S, typename L>
-  void AuthenticationServletAdapter<C, S, L>::Open() {
-    if(m_openState.SetOpening()) {
-      return;
-    }
-    try {
-      m_servlet->Open();
-    } catch(const std::exception&) {
-      m_openState.SetOpenFailure();
-      Shutdown();
-    }
-    m_openState.SetOpen();
-  }
-
-  template<typename C, typename S, typename L>
   void AuthenticationServletAdapter<C, S, L>::Close() {
     if(m_openState.SetClosing()) {
       return;
     }
-    Shutdown();
-  }
-
-  template<typename C, typename S, typename L>
-  void AuthenticationServletAdapter<C, S, L>::Shutdown() {
     m_servlet->Close();
-    m_openState.SetClosed();
+    m_openState.Close();
   }
 
   template<typename C, typename S, typename L>

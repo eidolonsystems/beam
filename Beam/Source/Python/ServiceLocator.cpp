@@ -165,17 +165,6 @@ namespace {
         "rename", Rename, entry, name);
     }
 
-    void SetCredentials(const std::string& username,
-        const std::string& password) override {
-      PYBIND11_OVERLOAD_PURE_NAME(void, VirtualServiceLocatorClient,
-        "set_credentials", SetCredentials, username, password);
-    }
-
-    void Open() override {
-      PYBIND11_OVERLOAD_PURE_NAME(void, VirtualServiceLocatorClient, "open",
-        Open);
-    }
-
     void Close() override {
       PYBIND11_OVERLOAD_PURE_NAME(void, VirtualServiceLocatorClient, "close",
         Close);
@@ -205,7 +194,7 @@ void Beam::Python::ExportApplicationServiceLocatorClient(
   class_<ToPythonServiceLocatorClient<PythonApplicationServiceLocatorClient>,
       VirtualServiceLocatorClient>(module, "ApplicationServiceLocatorClient")
     .def(init(
-      [] (const IpAddress& address) {
+      [] (std::string username, std::string password, IpAddress address) {
         auto isConnected = false;
         auto sessionBuilder = ApplicationServiceLocatorClient::SessionBuilder(
           [=] () mutable {
@@ -222,8 +211,8 @@ void Beam::Python::ExportApplicationServiceLocatorClient(
           });
         return MakeToPythonServiceLocatorClient(
           std::make_unique<PythonApplicationServiceLocatorClient>(
-          sessionBuilder));
-      }));
+          std::move(username), std::move(password), sessionBuilder));
+      }), call_guard<GilRelease>());
 }
 
 void Beam::Python::ExportDirectoryEntry(pybind11::module& module) {
@@ -329,8 +318,6 @@ void Beam::Python::ExportServiceLocatorClient(pybind11::module& module) {
     .def("load_last_login_time",
       &VirtualServiceLocatorClient::LoadLastLoginTime)
     .def("rename", &VirtualServiceLocatorClient::Rename)
-    .def("set_credentials", &VirtualServiceLocatorClient::SetCredentials)
-    .def("open", &VirtualServiceLocatorClient::Open)
     .def("close", &VirtualServiceLocatorClient::Close);
   ExportQueueSuite<AccountUpdate>(module, "AccountUpdate");
 }
@@ -338,15 +325,23 @@ void Beam::Python::ExportServiceLocatorClient(pybind11::module& module) {
 void Beam::Python::ExportServiceLocatorTestEnvironment(
     pybind11::module& module) {
   class_<ServiceLocatorTestEnvironment>(module, "ServiceLocatorTestEnvironment")
-    .def(init())
-    .def("open", &ServiceLocatorTestEnvironment::Open,
-      call_guard<GilRelease>())
+    .def(init(), call_guard<GilRelease>())
+    .def("__del__",
+      [] (ServiceLocatorTestEnvironment& self) {
+        self.Close();
+      }, call_guard<GilRelease>())
     .def("close", &ServiceLocatorTestEnvironment::Close,
       call_guard<GilRelease>())
     .def("get_root", &ServiceLocatorTestEnvironment::GetRoot,
       return_value_policy::reference_internal)
     .def("build_client",
+      [] (ServiceLocatorTestEnvironment& self, std::string username,
+          std::string password) {
+        return MakeToPythonServiceLocatorClient(self.BuildClient(
+          std::move(username), std::move(password)));
+      }, call_guard<GilRelease>())
+    .def("build_client",
       [] (ServiceLocatorTestEnvironment& self) {
         return MakeToPythonServiceLocatorClient(self.BuildClient());
-      });
+      }, call_guard<GilRelease>());
 }

@@ -2,11 +2,13 @@
 #include <boost/lexical_cast.hpp>
 #include <pybind11/functional.h>
 #include <pybind11/stl.h>
+#include "Beam/IO/ConnectException.hpp"
 #include "Beam/IO/EndOfFileException.hpp"
 #include "Beam/IO/NotConnectedException.hpp"
 #include "Beam/IO/VirtualChannel.hpp"
 #include "Beam/IO/VirtualChannelIdentifier.hpp"
 #include "Beam/IO/VirtualConnection.hpp"
+#include "Beam/IO/VirtualServerConnection.hpp"
 #include "Beam/IO/OpenState.hpp"
 #include "Beam/Python/GilRelease.hpp"
 
@@ -18,12 +20,60 @@ using namespace pybind11;
 
 namespace {
   object ioException;
+
+  struct TrampolineConnection final : VirtualConnection {
+    void Close() override {
+      PYBIND11_OVERLOAD_PURE_NAME(void, VirtualConnection, "close", Close);
+    }
+  };
+
+  struct TrampolineServerConnection final : VirtualServerConnection {
+    std::unique_ptr<VirtualChannel> Accept() override {
+      return MakeVirtualChannel(PythonAccept());
+    }
+
+    std::shared_ptr<VirtualChannel> PythonAccept() {
+      PYBIND11_OVERLOAD_PURE_NAME(std::shared_ptr<VirtualChannel>,
+        VirtualServerConnection, "accept", PythonAccept);
+    }
+  };
+
+  struct TrampolineReader final : VirtualReader {
+    bool IsDataAvailable() const {
+      PYBIND11_OVERLOAD_PURE_NAME(bool, VirtualReader, "is_data_available",
+        IsDataAvailable);
+    }
+
+    std::size_t Read(Out<SharedBuffer> destination) {
+      PYBIND11_OVERLOAD_PURE_NAME(std::size_t, VirtualReader, "read", Read,
+        Store(destination));
+    }
+
+    std::size_t Read(char* destination, std::size_t size) {
+      PYBIND11_OVERLOAD_PURE_NAME(std::size_t, VirtualReader, "read", Read,
+        destination, size);
+    }
+
+    std::size_t Read(Out<SharedBuffer> destination, std::size_t size) {
+      PYBIND11_OVERLOAD_PURE_NAME(std::size_t, VirtualReader, "read", Read,
+        Store(destination), size);
+    }
+  };
+
+  struct TrampolineWriter final : VirtualWriter {
+    void Write(const void* data, std::size_t size) {
+      PYBIND11_OVERLOAD_PURE_NAME(void, VirtualWriter, "write", data, size);
+    }
+
+    void Write(const Buffer& data) {
+      PYBIND11_OVERLOAD_PURE_NAME(void, VirtualWriter, "write", data);
+    }
+  };
 }
 
 const object& Beam::Python::GetIOException() {
   return ioException;
 }
-
 
 void Beam::Python::ExportChannel(pybind11::module& module) {
   class_<VirtualChannel>(module, "Channel")
@@ -43,9 +93,8 @@ void Beam::Python::ExportChannelIdentifier(pybind11::module& module) {
 }
 
 void Beam::Python::ExportConnection(pybind11::module& module) {
-  class_<VirtualConnection>(module, "Connection")
-    .def("open", &VirtualConnection::Open, call_guard<GilRelease>())
-    .def("close", &VirtualConnection::Close, call_guard<GilRelease>());
+  class_<VirtualConnection, TrampolineConnection>(module, "Connection")
+    .def("close", &VirtualConnection::Close);
 }
 
 void Beam::Python::ExportIO(pybind11::module& module) {
@@ -55,6 +104,7 @@ void Beam::Python::ExportIO(pybind11::module& module) {
   ExportConnection(submodule);
   ExportOpenState(submodule);
   ExportReader(submodule);
+  ExportServerConnection(submodule);
   ExportSharedBuffer(submodule);
   ExportWriter(submodule);
   ioException = register_exception<IOException>(submodule, "IOException");
@@ -69,35 +119,27 @@ void Beam::Python::ExportIO(pybind11::module& module) {
 void Beam::Python::ExportOpenState(pybind11::module& module) {
   class_<OpenState>(module, "OpenState")
     .def(init())
-    .def(init<bool>())
-    .def("is_opening", &OpenState::IsOpening, call_guard<GilRelease>())
-    .def("is_open", &OpenState::IsOpen, call_guard<GilRelease>())
-    .def("is_running", &OpenState::IsRunning, call_guard<GilRelease>())
-    .def("is_closing", &OpenState::IsClosing, call_guard<GilRelease>())
-    .def("is_closed", &OpenState::IsClosed, call_guard<GilRelease>())
-    .def("set_opening", &OpenState::SetOpening,
-      call_guard<GilRelease>())
-    .def("set_open", &OpenState::SetOpen, call_guard<GilRelease>())
-    .def("set_open_failure",
-      static_cast<void (OpenState::*)()>(&OpenState::SetOpenFailure),
-      call_guard<GilRelease>())
-    .def("set_open_failure",
-      static_cast<void (OpenState::*)(const std::exception_ptr&)>(
-      &OpenState::SetOpenFailure), call_guard<GilRelease>())
-    .def("set_closing", &OpenState::SetClosing,
-      call_guard<GilRelease>())
-    .def("set_closed", &OpenState::SetClosed, call_guard<GilRelease>());
+    .def_property_readonly("is_open", &OpenState::IsOpen)
+    .def_property_readonly("is_closing", &OpenState::IsClosing)
+    .def_property_readonly("is_closed", &OpenState::IsClosed)
+    .def("ensure_open", &OpenState::EnsureOpen)
+    .def("set_closing", &OpenState::SetClosing, call_guard<GilRelease>())
+    .def("close", &OpenState::Close, call_guard<GilRelease>());
 }
 
 void Beam::Python::ExportReader(pybind11::module& module) {
-  class_<VirtualReader>(module, "Reader")
-    .def("is_data_available", &VirtualReader::IsDataAvailable,
-      call_guard<GilRelease>())
+  class_<VirtualReader, TrampolineReader>(module, "Reader")
+    .def("is_data_available", &VirtualReader::IsDataAvailable)
     .def("read", static_cast<std::size_t (VirtualReader::*)(Out<SharedBuffer>)>(
-      &VirtualReader::Read), call_guard<GilRelease>())
+      &VirtualReader::Read))
     .def("read", static_cast<std::size_t (VirtualReader::*)(
-      Out<SharedBuffer>, std::size_t)>(&VirtualReader::Read),
-      call_guard<GilRelease>());
+      Out<SharedBuffer>, std::size_t)>(&VirtualReader::Read));
+}
+
+void Beam::Python::ExportServerConnection(pybind11::module& module) {
+  class_<VirtualServerConnection, VirtualConnection,
+      TrampolineServerConnection>(module, "ServerConnection")
+    .def("accept", &VirtualServerConnection::Accept);
 }
 
 void Beam::Python::ExportSharedBuffer(pybind11::module& module) {
@@ -135,7 +177,7 @@ void Beam::Python::ExportSharedBuffer(pybind11::module& module) {
 }
 
 void Beam::Python::ExportWriter(pybind11::module& module) {
-  class_<VirtualWriter>(module, "Writer")
+  class_<VirtualWriter, TrampolineWriter>(module, "Writer")
     .def("write", static_cast<void (VirtualWriter::*)(const SharedBuffer&)>(
-      &VirtualWriter::Write), call_guard<GilRelease>());
+      &VirtualWriter::Write));
 }

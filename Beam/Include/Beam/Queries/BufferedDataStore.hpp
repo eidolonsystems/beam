@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <memory>
 #include <vector>
-#include <boost/noncopyable.hpp>
 #include <boost/thread/locks.hpp>
 #include <boost/thread/mutex.hpp>
 #include "Beam/IO/OpenState.hpp"
@@ -25,7 +24,7 @@ namespace Beam::Queries {
    */
   template<typename D, typename E =
     typename GetTryDereferenceType<D>::EvaluatorTranslatorFilter>
-  class BufferedDataStore : private boost::noncopyable {
+  class BufferedDataStore {
     public:
 
       /** The type of data store to buffer writes to. */
@@ -66,8 +65,6 @@ namespace Beam::Queries {
 
       void Store(const std::vector<IndexedValue>& values);
 
-      void Open();
-
       void Close();
 
     private:
@@ -82,7 +79,8 @@ namespace Beam::Queries {
       IO::OpenState m_openState;
       RoutineTaskQueue m_tasks;
 
-      void Shutdown();
+      BufferedDataStore(const BufferedDataStore&) = delete;
+      BufferedDataStore& operator =(const BufferedDataStore&) = delete;
       void Flush();
       void TestFlush();
   };
@@ -160,30 +158,10 @@ namespace Beam::Queries {
   }
 
   template<typename D, typename E>
-  void BufferedDataStore<D, E>::Open() {
-    if(m_openState.SetOpening()) {
-      return;
-    }
-    try {
-      m_dataStoreBuffer->Open();
-      m_dataStore->Open();
-    } catch(const std::exception&) {
-      m_openState.SetOpenFailure();
-      Shutdown();
-    }
-    m_openState.SetOpen();
-  }
-
-  template<typename D, typename E>
   void BufferedDataStore<D, E>::Close() {
     if(m_openState.SetClosing()) {
       return;
     }
-    Shutdown();
-  }
-
-  template<typename D, typename E>
-  void BufferedDataStore<D, E>::Shutdown() {
     auto writeToken = Routines::Async<void>();
     m_tasks.Push(
       [&] {
@@ -191,7 +169,7 @@ namespace Beam::Queries {
         writeToken.GetEval().SetResult();
       });
     writeToken.Get();
-    m_openState.SetClosed();
+    m_openState.Close();
   }
 
   template<typename D, typename E>

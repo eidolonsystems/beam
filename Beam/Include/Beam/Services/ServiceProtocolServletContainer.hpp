@@ -60,11 +60,9 @@ namespace Beam::Services {
       */
       template<typename SF, typename CF>
       ServiceProtocolServletContainer(SF&& servlet, CF&& serverConnection,
-        const typename ServiceProtocolServer::TimerFactory& timerFactory);
+        typename ServiceProtocolServer::TimerFactory timerFactory);
 
       ~ServiceProtocolServletContainer();
-
-      void Open();
 
       void Close();
 
@@ -73,6 +71,10 @@ namespace Beam::Services {
       Routines::Async<void> m_isOpen;
       ServiceProtocolServer m_protocolServer;
 
+      ServiceProtocolServletContainer(
+        const ServiceProtocolServletContainer&) = delete;
+      ServiceProtocolServletContainer& operator =(
+        const ServiceProtocolServletContainer&) = delete;
       void OnClientAccepted(ServiceProtocolClient& client);
       void OnClientClosed(ServiceProtocolClient& client);
   };
@@ -82,16 +84,18 @@ namespace Beam::Services {
   template<typename SF, typename CF>
   ServiceProtocolServletContainer<M, C, S, E, T, P>::
       ServiceProtocolServletContainer(SF&& servlet, CF&& serverConnection,
-      const typename ServiceProtocolServer::TimerFactory& timerFactory)
+      typename ServiceProtocolServer::TimerFactory timerFactory)
 BEAM_SUPPRESS_THIS_INITIALIZER()
       : m_servlet(std::forward<SF>(servlet)),
-        m_protocolServer(std::forward<CF>(serverConnection), timerFactory,
+        m_protocolServer(std::forward<CF>(serverConnection),
+          std::move(timerFactory),
           std::bind(&ServiceProtocolServletContainer::OnClientAccepted, this,
           std::placeholders::_1), std::bind(
           &ServiceProtocolServletContainer::OnClientClosed, this,
           std::placeholders::_1)) {
 BEAM_UNSUPPRESS_THIS_INITIALIZER()
     m_servlet->RegisterServices(Store(m_protocolServer.GetSlots()));
+    m_isOpen.GetEval().SetResult();
   }
 
   template<typename M, typename C, typename S, typename E, typename T,
@@ -99,20 +103,6 @@ BEAM_UNSUPPRESS_THIS_INITIALIZER()
   ServiceProtocolServletContainer<M, C, S, E, T, P>::
       ~ServiceProtocolServletContainer() {
     Close();
-  }
-
-  template<typename M, typename C, typename S, typename E, typename T,
-    typename P>
-  void ServiceProtocolServletContainer<M, C, S, E, T, P>::Open() {
-    m_protocolServer.Open();
-    try {
-      m_servlet->Open();
-    } catch(const std::exception&) {
-      m_protocolServer.Close();
-      m_isOpen.GetEval().SetException(std::current_exception());
-      throw;
-    }
-    m_isOpen.GetEval().SetResult();
   }
 
   template<typename M, typename C, typename S, typename E, typename T,

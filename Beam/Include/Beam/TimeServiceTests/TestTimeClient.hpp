@@ -1,34 +1,27 @@
-#ifndef BEAM_TESTTIMECLIENT_HPP
-#define BEAM_TESTTIMECLIENT_HPP
-#include <boost/noncopyable.hpp>
+#ifndef BEAM_TEST_TIME_CLIENT_HPP
+#define BEAM_TEST_TIME_CLIENT_HPP
 #include "Beam/IO/OpenState.hpp"
 #include "Beam/Pointers/Ref.hpp"
 #include "Beam/TimeService/FixedTimeClient.hpp"
 #include "Beam/TimeServiceTests/TimeServiceTestEnvironment.hpp"
 #include "Beam/TimeServiceTests/TimeServiceTests.hpp"
 
-namespace Beam {
-namespace TimeService {
-namespace Tests {
+namespace Beam::TimeService::Tests {
 
-  /*! \class TestTimeClient
-      \brief A TimeClient used by the TestEnvironment.
-   */
-  class TestTimeClient : private boost::noncopyable {
+  /** A TimeClient used by the TestEnvironment. */
+  class TestTimeClient {
     public:
 
-      //! Constructs a TestTimeClient.
-      /*!
-        \param environment The TimeServiceTestEnvironment this client belongs
-               to.
-      */
+      /**
+       * Constructs a TestTimeClient.
+       * @param environment The TimeServiceTestEnvironment this client belongs
+       *        to.
+       */
       TestTimeClient(Ref<TimeServiceTestEnvironment> environment);
 
       ~TestTimeClient();
 
       boost::posix_time::ptime GetTime();
-
-      void Open();
 
       void Close();
 
@@ -38,13 +31,21 @@ namespace Tests {
       TimeService::FixedTimeClient m_timeClient;
       IO::OpenState m_openState;
 
-      void Shutdown();
+      TestTimeClient(const TestTimeClient&) = delete;
+      TestTimeClient& operator =(const TestTimeClient&) = delete;
       void SetTime(boost::posix_time::ptime time);
   };
 
   inline TestTimeClient::TestTimeClient(
       Ref<TimeServiceTestEnvironment> environment)
-      : m_environment{environment.Get()} {}
+      : m_environment(environment.Get()) {
+    try {
+      m_environment->Add(this);
+    } catch(const std::exception&) {
+      Close();
+      BOOST_RETHROW;
+    }
+  }
 
   inline TestTimeClient::~TestTimeClient() {
     Close();
@@ -54,31 +55,13 @@ namespace Tests {
     return m_timeClient.GetTime();
   }
 
-  inline void TestTimeClient::Open() {
-    if(m_openState.SetOpening()) {
-      return;
-    }
-    try {
-      m_environment->Add(this);
-      m_timeClient.Open();
-    } catch(const std::exception&) {
-      m_openState.SetOpenFailure();
-      Shutdown();
-    }
-    m_openState.SetOpen();
-  }
-
   inline void TestTimeClient::Close() {
     if(m_openState.SetClosing()) {
       return;
     }
-    Shutdown();
-  }
-
-  inline void TestTimeClient::Shutdown() {
     m_timeClient.Close();
     m_environment->Remove(this);
-    m_openState.SetClosed();
+    m_openState.Close();
   }
 
   inline void TestTimeClient::SetTime(boost::posix_time::ptime time) {
@@ -86,16 +69,13 @@ namespace Tests {
   }
 
   inline void TimeServiceTestEnvironment::Add(TestTimeClient* timeClient) {
-    m_timeClients.With(
-      [&] (auto& timeClients) {
-        timeClients.push_back(timeClient);
-        if(m_currentTime != boost::posix_time::not_a_date_time) {
-          timeClient->SetTime(m_currentTime);
-        }
-      });
+    m_timeClients.With([&] (auto& timeClients) {
+      timeClients.push_back(timeClient);
+      if(m_currentTime != boost::posix_time::not_a_date_time) {
+        timeClient->SetTime(m_currentTime);
+      }
+    });
   }
-}
-}
 }
 
 #endif

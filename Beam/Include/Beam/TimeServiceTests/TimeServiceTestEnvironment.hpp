@@ -1,7 +1,6 @@
-#ifndef BEAM_TIMESERVICETESTENVIRONMENT_HPP
-#define BEAM_TIMESERVICETESTENVIRONMENT_HPP
-#include <boost/noncopyable.hpp>
-#include <boost/date_time/posix_time/posix_time_types.hpp>
+#ifndef BEAM_TIME_SERVICE_TEST_ENVIRONMENT_HPP
+#define BEAM_TIME_SERVICE_TEST_ENVIRONMENT_HPP
+#include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/throw_exception.hpp>
 #include "Beam/Collections/SynchronizedList.hpp"
 #include "Beam/IO/OpenState.hpp"
@@ -10,39 +9,39 @@
 #include "Beam/TimeServiceTests/TimeServiceTestEnvironmentException.hpp"
 #include "Beam/TimeServiceTests/TimeServiceTests.hpp"
 
-namespace Beam {
-namespace TimeService {
-namespace Tests {
+namespace Beam::TimeService::Tests {
   void Fail(TestTimer& timer);
   void Trigger(TestTimer& timer);
 
-  /*! \class TimeServiceTestEnvironment
-      \brief Simulates the passing of time.
-   */
-  class TimeServiceTestEnvironment : private boost::noncopyable {
+  /** Simulates the passing of time. */
+  class TimeServiceTestEnvironment {
     public:
 
-      //! Constructs a TimeServiceTestEnvironment.
+      /** Constructs a TimeServiceTestEnvironment using the system time. */
       TimeServiceTestEnvironment();
+
+      /**
+       * Constructs a TimeServiceTestEnvironment.
+       * @param time The time to set the environment to.
+       */
+      TimeServiceTestEnvironment(boost::posix_time::ptime time);
 
       ~TimeServiceTestEnvironment();
 
-      //! Sets the time.
-      /*!
-        \param time The time to set the environment to.
-      */
+      /**
+       * Sets the time.
+       * @param time The time to set the environment to.
+       */
       void SetTime(boost::posix_time::ptime time);
 
-      //! Advances the time by a certain amount.
-      /*!
-        \param duration The amount of time to advance the environment by.
-      */
+      /**
+       * Advances the time by a certain amount.
+       * @param duration The amount of time to advance the environment by.
+       */
       void AdvanceTime(boost::posix_time::time_duration duration);
 
-      //! Returns the time.
+      /** Returns the time. */
       boost::posix_time::ptime GetTime() const;
-
-      void Open();
 
       void Close();
 
@@ -60,8 +59,9 @@ namespace Tests {
       SynchronizedVector<TimerEntry> m_timers;
       IO::OpenState m_openState;
 
-      void Shutdown();
-      
+      TimeServiceTestEnvironment(const TimeServiceTestEnvironment&) = delete;
+      TimeServiceTestEnvironment& operator =(
+        const TimeServiceTestEnvironment&) = delete;
       void LockedSetTime(boost::posix_time::ptime time,
         boost::unique_lock<Threading::Mutex>& lock);
       void Add(TestTimeClient* timeClient);
@@ -71,7 +71,19 @@ namespace Tests {
   };
 
   inline TimeServiceTestEnvironment::TimeServiceTestEnvironment()
-      : m_nextTrigger(boost::posix_time::pos_infin) {}
+    : TimeServiceTestEnvironment(
+        boost::posix_time::second_clock::universal_time()) {}
+
+  inline TimeServiceTestEnvironment::TimeServiceTestEnvironment(
+      boost::posix_time::ptime time)
+      : m_nextTrigger(boost::posix_time::pos_infin) {
+    try {
+      SetTime(time);
+    } catch(const std::exception&) {
+      Close();
+      BOOST_RETHROW;
+    }
+  }
 
   inline TimeServiceTestEnvironment::~TimeServiceTestEnvironment() {
     Close();
@@ -104,30 +116,15 @@ namespace Tests {
     return m_currentTime;
   }
 
-  inline void TimeServiceTestEnvironment::Open() {
-    if(m_openState.SetOpening()) {
-      return;
-    }
-    if(m_currentTime == boost::posix_time::not_a_date_time) {
-      m_currentTime = boost::posix_time::ptime(
-        boost::gregorian::date(2016, 7, 31), boost::posix_time::seconds(0));
-    }
-    m_openState.SetOpen();
-  }
-
   inline void TimeServiceTestEnvironment::Close() {
     if(m_openState.SetClosing()) {
       return;
     }
-    Shutdown();
-  }
-
-  inline void TimeServiceTestEnvironment::Shutdown() {
     auto pendingTimers = m_timers.Acquire();
     for(auto& pendingTimer : pendingTimers) {
       Fail(*pendingTimer.m_timer);
     }
-    m_openState.SetClosed();
+    m_openState.Close();
     Routines::FlushPendingRoutines();
   }
 
@@ -138,14 +135,13 @@ namespace Tests {
         m_currentTime >= time) {
       return;
     }
-    auto delta =
-      [&] {
-        if(m_currentTime == boost::posix_time::not_a_date_time) {
-          return boost::posix_time::time_duration{};
-        } else {
-          return time - m_currentTime;
-        }
-      }();
+    auto delta = [&] {
+      if(m_currentTime == boost::posix_time::not_a_date_time) {
+        return boost::posix_time::time_duration{};
+      } else {
+        return time - m_currentTime;
+      }
+    }();
     while(delta > m_nextTrigger) {
       delta -= m_nextTrigger;
       LockedSetTime(m_currentTime + m_nextTrigger, lock);
@@ -155,26 +151,23 @@ namespace Tests {
       m_nextTrigger = boost::posix_time::pos_infin;
     }
     m_currentTime = time;
-    m_timeClients.ForEach(
-      [&] (auto& timeClient) {
-        timeClient->SetTime(time);
-      });
+    m_timeClients.ForEach([&] (auto& timeClient) {
+      timeClient->SetTime(time);
+    });
     auto expiredTimers = std::vector<TestTimer*>();
-    m_timers.With(
-      [&] (auto& timers) {
-        auto i = timers.begin();
-        while(i != timers.end()) {
-          auto& timer = *i;
+    m_timers.With([&] (auto& timers) {
+      timers.erase(std::remove_if(timers.begin(), timers.end(),
+        [&] (auto& timer) {
           timer.m_timeRemaining -= delta;
           if(timer.m_timeRemaining <= boost::posix_time::seconds(0)) {
             expiredTimers.push_back(timer.m_timer);
-            i = timers.erase(i);
+            return true;
           } else {
             m_nextTrigger = std::min(m_nextTrigger, timer.m_timeRemaining);
-            ++i;
+            return false;
           }
-        }
-      });
+        }), timers.end());
+    });
     {
       auto release = Threading::Release(lock);
       for(auto& expiredTimer : expiredTimers) {
@@ -189,13 +182,10 @@ namespace Tests {
   }
 
   inline void TimeServiceTestEnvironment::Remove(TestTimer* timer) {
-    m_timers.RemoveIf(
-      [&] (auto& entry) {
-        return entry.m_timer == timer;
-      });
+    m_timers.RemoveIf([&] (auto& entry) {
+      return entry.m_timer == timer;
+    });
   }
-}
-}
 }
 
 #endif

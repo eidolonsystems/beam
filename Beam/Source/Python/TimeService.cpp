@@ -36,10 +36,6 @@ namespace {
         GetTime);
     }
 
-    void Open() override {
-      PYBIND11_OVERLOAD_PURE_NAME(void, VirtualTimeClient, "open", Open);
-    }
-
     void Close() override {
       PYBIND11_OVERLOAD_PURE_NAME(void, VirtualTimeClient, "close", Close);
     }
@@ -114,7 +110,7 @@ void Beam::Python::ExportNtpTimeClient(pybind11::module& module) {
             }
           }();
         return MakeToPythonTimeClient(std::move(timeClient)).release();
-      }));
+      }), call_guard<GilRelease>());
 }
 
 void Beam::Python::ExportTestTimeClient(pybind11::module& module) {
@@ -140,7 +136,6 @@ void Beam::Python::ExportTestTimer(pybind11::module& module) {
 void Beam::Python::ExportTimeClient(pybind11::module& module) {
   class_<VirtualTimeClient, TrampolineTimeClient>(module, "TimeClient")
     .def("get_time", &VirtualTimeClient::GetTime)
-    .def("open", &VirtualTimeClient::Open)
     .def("close", &VirtualTimeClient::Close);
 }
 
@@ -171,13 +166,17 @@ void Beam::Python::ExportTimeService(pybind11::module& module) {
 
 void Beam::Python::ExportTimeServiceTestEnvironment(pybind11::module& module) {
   class_<TimeServiceTestEnvironment>(module, "TimeServiceTestEnvironment")
-    .def(init())
+    .def(init(), call_guard<GilRelease>())
+    .def(init<ptime>(), call_guard<GilRelease>())
+    .def("__del__",
+      [] (TimeServiceTestEnvironment& self) {
+        self.Close();
+      }, call_guard<GilRelease>())
     .def("set_time", &TimeServiceTestEnvironment::SetTime,
       call_guard<GilRelease>())
     .def("advance_time", &TimeServiceTestEnvironment::AdvanceTime,
       call_guard<GilRelease>())
     .def("get_time", &TimeServiceTestEnvironment::GetTime,
       call_guard<GilRelease>())
-    .def("open", &TimeServiceTestEnvironment::Open, call_guard<GilRelease>())
     .def("close", &TimeServiceTestEnvironment::Close, call_guard<GilRelease>());
 }

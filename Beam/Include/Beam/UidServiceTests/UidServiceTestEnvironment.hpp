@@ -33,9 +33,6 @@ namespace Tests {
 
       ~UidServiceTestEnvironment();
 
-      //! Opens the servlet.
-      void Open();
-
       //! Closes the servlet.
       void Close();
 
@@ -68,10 +65,6 @@ namespace Tests {
     Close();
   }
 
-  inline void UidServiceTestEnvironment::Open() {
-    m_container.Open();
-  }
-
   inline void UidServiceTestEnvironment::Close() {
     m_container.Close();
   }
@@ -81,7 +74,7 @@ namespace Tests {
     ServiceProtocolClientBuilder builder(
       [=] {
         return std::make_unique<ServiceProtocolClientBuilder::Channel>(
-          "test_uid_client", Ref(m_serverConnection));
+          "test_uid_client", m_serverConnection);
       },
       [] {
         return std::make_unique<ServiceProtocolClientBuilder::Timer>();

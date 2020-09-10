@@ -2,7 +2,6 @@
 #define BEAM_ASYNC_DATA_STORE_HPP
 #include <array>
 #include <memory>
-#include <boost/noncopyable.hpp>
 #include <boost/thread/locks.hpp>
 #include <boost/thread/mutex.hpp>
 #include "Beam/IO/OpenState.hpp"
@@ -93,7 +92,7 @@ namespace Details {
    */
   template<typename D, typename E =
     typename GetTryDereferenceType<D>::EvaluatorTranslatorFilter>
-  class AsyncDataStore : private boost::noncopyable {
+  class AsyncDataStore {
     public:
 
       /** The type of data store to buffer writes to. */
@@ -132,8 +131,6 @@ namespace Details {
 
       void Store(const std::vector<IndexedValue>& values);
 
-      void Open();
-
       void Close();
 
     private:
@@ -147,7 +144,8 @@ namespace Details {
       IO::OpenState m_openState;
       RoutineTaskQueue m_tasks;
 
-      void Shutdown();
+      AsyncDataStore(const AsyncDataStore&) = delete;
+      AsyncDataStore& operator =(const AsyncDataStore&) = delete;
       void TestFlush();
       void Flush();
   };
@@ -162,6 +160,11 @@ namespace Details {
       m_currentDataStore(std::make_shared<ReserveDataStore>()),
       m_flushedDataStore(std::make_shared<ReserveDataStore>()),
       m_isFlushing(false) {}
+
+  template<typename D, typename E>
+  AsyncDataStore<D, E>::~AsyncDataStore() {
+    Close();
+  }
 
   template<typename D, typename E>
   std::vector<typename AsyncDataStore<D, E>::SequencedValue>
@@ -196,53 +199,25 @@ namespace Details {
   }
 
   template<typename D, typename E>
-  AsyncDataStore<D, E>::~AsyncDataStore() {
-    Close();
-  }
-
-  template<typename D, typename E>
-  void AsyncDataStore<D, E>::Open() {
-    if(m_openState.SetOpening()) {
-      return;
-    }
-    try {
-      m_dataStore->Open();
-      m_currentDataStore->Open();
-      m_flushedDataStore->Open();
-    } catch(const std::exception&) {
-      m_openState.SetOpenFailure();
-      Shutdown();
-    }
-    m_openState.SetOpen();
-  }
-
-  template<typename D, typename E>
   void AsyncDataStore<D, E>::Close() {
     if(m_openState.SetClosing()) {
       return;
     }
-    Shutdown();
-  }
-
-  template<typename D, typename E>
-  void AsyncDataStore<D, E>::Shutdown() {
     auto writeToken = Routines::Async<void>();
-    m_tasks.Push(
-      [&] {
-        writeToken.GetEval().SetResult();
-      });
+    m_tasks.Push([&] {
+      writeToken.GetEval().SetResult();
+    });
     writeToken.Get();
-    m_openState.SetClosed();
+    m_openState.Close();
   }
 
   template<typename D, typename E>
   void AsyncDataStore<D, E>::TestFlush() {
     if(!m_isFlushing) {
       m_isFlushing = true;
-      m_tasks.Push(
-        [=] {
-          Flush();
-        });
+      m_tasks.Push([=] {
+        Flush();
+      });
     }
   }
 
@@ -255,7 +230,6 @@ namespace Details {
     }
     m_dataStore->Store(m_flushedDataStore->LoadAll());
     auto newDataStore = std::make_shared<ReserveDataStore>();
-    newDataStore->Open();
     {
       auto lock = boost::lock_guard(m_mutex);
       m_flushedDataStore = std::move(newDataStore);

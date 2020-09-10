@@ -3,7 +3,6 @@
 #include <random>
 #include <string>
 #include <vector>
-#include <boost/noncopyable.hpp>
 #include <boost/thread/mutex.hpp>
 #include <boost/throw_exception.hpp>
 #include "Beam/IO/ConnectException.hpp"
@@ -28,7 +27,7 @@ namespace Beam::ServiceLocator {
    * @param <B> The type used to build ServiceProtocolClients to the server.
    */
   template<typename B>
-  class ServiceLocatorClient : private boost::noncopyable {
+  class ServiceLocatorClient {
     public:
 
       /** The type used to build ServiceProtocolClients to the server. */
@@ -36,10 +35,13 @@ namespace Beam::ServiceLocator {
 
       /**
        * Constructs a ServiceLocatorClient.
+       * @param username The username.
+       * @param password The password.
        * @param clientBuilder Initializes the ServiceProtocolClientBuilder.
        */
       template<typename BF>
-      explicit ServiceLocatorClient(BF&& clientBuilder);
+      ServiceLocatorClient(std::string username, std::string password,
+        BF&& clientBuilder);
 
       ~ServiceLocatorClient();
 
@@ -232,25 +234,15 @@ namespace Beam::ServiceLocator {
       DirectoryEntry Rename(const DirectoryEntry& entry,
         const std::string& name);
 
-      /**
-       * Sets the credentials used to login to the ServiceLocatorServer.
-       * @param username The username.
-       * @param password The password.
-       */
-      void SetCredentials(const std::string& username,
-        const std::string& password);
-
-      void Open();
-
       void Close();
 
     private:
       using ServiceProtocolClient =
         typename ServiceProtocolClientBuilder::Client;
       mutable boost::mutex m_mutex;
-      Beam::Services::ServiceProtocolClientHandler<B> m_clientHandler;
       std::string m_username;
       std::string m_password;
+      Beam::Services::ServiceProtocolClientHandler<B> m_clientHandler;
       std::string m_sessionId;
       DirectoryEntry m_account;
       std::vector<DirectoryEntry> m_accountUpdateSnapshot;
@@ -258,7 +250,8 @@ namespace Beam::ServiceLocator {
       RoutineTaskQueue m_tasks;
       IO::OpenState m_openState;
 
-      void Shutdown();
+      ServiceLocatorClient(const ServiceLocatorClient&) = delete;
+      ServiceLocatorClient& operator =(const ServiceLocatorClient&) = delete;
       void Login(ServiceProtocolClient& client);
       void OnReconnect(const std::shared_ptr<ServiceProtocolClient>& client);
       void OnAccountUpdate(ServiceProtocolClient& client,
@@ -336,8 +329,11 @@ namespace Beam::ServiceLocator {
 
   template<typename B>
   template<typename BF>
-  ServiceLocatorClient<B>::ServiceLocatorClient(BF&& clientBuilder)
-      : m_clientHandler(std::forward<BF>(clientBuilder)) {
+  ServiceLocatorClient<B>::ServiceLocatorClient(std::string username,
+      std::string password, BF&& clientBuilder)
+      : m_username(std::move(username)),
+        m_password(std::move(password)),
+        m_clientHandler(std::forward<BF>(clientBuilder)) {
     m_clientHandler.SetReconnectHandler(
       std::bind(&ServiceLocatorClient::OnReconnect, this,
       std::placeholders::_1));
@@ -347,6 +343,13 @@ namespace Beam::ServiceLocator {
       Store(m_clientHandler.GetSlots()),
       std::bind(&ServiceLocatorClient::OnAccountUpdate, this,
       std::placeholders::_1, std::placeholders::_2));
+    try {
+      auto client = m_clientHandler.GetClient();
+      Login(*client);
+    } catch(const std::exception&) {
+      Close();
+      BOOST_RETHROW;
+    }
   }
 
   template<typename B>
@@ -548,43 +551,15 @@ namespace Beam::ServiceLocator {
   }
 
   template<typename B>
-  void ServiceLocatorClient<B>::SetCredentials(const std::string& username,
-      const std::string& password) {
-    m_username = username;
-    m_password = password;
-  }
-
-  template<typename B>
-  void ServiceLocatorClient<B>::Open() {
-    if(m_openState.SetOpening()) {
-      return;
-    }
-    try {
-      m_clientHandler.Open();
-      auto client = m_clientHandler.GetClient();
-      Login(*client);
-    } catch(const std::exception&) {
-      m_openState.SetOpenFailure();
-      Shutdown();
-    }
-    m_openState.SetOpen();
-  }
-
-  template<typename B>
   void ServiceLocatorClient<B>::Close() {
     if(m_openState.SetClosing()) {
       return;
     }
-    Shutdown();
-  }
-
-  template<typename B>
-  void ServiceLocatorClient<B>::Shutdown() {
-    m_clientHandler.Close();
     m_tasks.Break();
     m_tasks.Wait();
     m_accountUpdatePublisher.Break();
-    m_openState.SetClosed();
+    m_clientHandler.Close();
+    m_openState.Close();
   }
 
   template<typename B>
@@ -619,7 +594,7 @@ namespace Beam::ServiceLocator {
       });
     } catch(const std::exception&) {
       Close();
-      throw;
+      BOOST_RETHROW;
     }
   }
 

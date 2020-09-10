@@ -97,8 +97,6 @@ namespace Beam::ServiceLocator {
       void WithTransaction(
         const std::function<void ()>& transaction) override;
 
-      void Open() override;
-
       void Close() override;
 
     private:
@@ -456,18 +454,8 @@ namespace Beam::ServiceLocator {
     transaction();
   }
 
-  inline void LocalServiceLocatorDataStore::Open() {
-    if(m_openState.SetOpening()) {
-      return;
-    }
-    m_openState.SetOpen();
-  }
-
   inline void LocalServiceLocatorDataStore::Close() {
-    if(m_openState.SetClosing()) {
-      return;
-    }
-    m_openState.SetClosed();
+    m_openState.Close();
   }
 
   inline std::shared_ptr<LocalServiceLocatorDataStore::AccountEntry>

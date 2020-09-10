@@ -7,7 +7,6 @@
 #include <unordered_map>
 #include <boost/algorithm/string/case_conv.hpp>
 #include <boost/algorithm/string/trim.hpp>
-#include <boost/noncopyable.hpp>
 #include "Beam/Collections/SynchronizedList.hpp"
 #include "Beam/Pointers/LocalPtr.hpp"
 #include "Beam/ServiceLocator/ServiceLocatorSession.hpp"
@@ -24,7 +23,7 @@ namespace Beam::ServiceLocator {
    * @param <D> The type of data store to use.
    */
   template<typename C, typename D>
-  class ServiceLocatorServlet : private boost::noncopyable {
+  class ServiceLocatorServlet {
     public:
       using Container = C;
       using ServiceProtocolClient = typename Container::ServiceProtocolClient;
@@ -43,8 +42,6 @@ namespace Beam::ServiceLocator {
         Out<Services::ServiceSlots<ServiceProtocolClient>> slots);
 
       void HandleClientClosed(ServiceProtocolClient& client);
-
-      void Open();
 
       void Close();
 
@@ -73,7 +70,9 @@ namespace Beam::ServiceLocator {
       std::atomic_int m_nextServiceId;
       IO::OpenState m_openState;
 
-      void Shutdown();
+      ServiceLocatorServlet(const ServiceLocatorServlet&) = delete;
+      ServiceLocatorServlet& operator =(
+        const ServiceLocatorServlet&) = delete;
       void Delete(const DirectoryEntry& entry);
       LoginServiceResult OnLoginRequest(ServiceProtocolClient& client,
         const std::string& username, const std::string& password);
@@ -149,7 +148,26 @@ namespace Beam::ServiceLocator {
   template<typename C, typename D>
   template<typename DF>
   ServiceLocatorServlet<C, D>::ServiceLocatorServlet(DF&& dataStore)
-    : m_dataStore(std::forward<DF>(dataStore)) {}
+      : m_dataStore(std::forward<DF>(dataStore)) {
+    try {
+      m_nextServiceId = 1;
+      m_dataStore->WithTransaction([&] {
+        try {
+          m_dataStore->LoadDirectoryEntry(0);
+          return;
+        } catch(const ServiceLocatorDataStoreException&) {}
+        auto starDirectory = m_dataStore->MakeDirectory("*",
+          DirectoryEntry::MakeDirectory(static_cast<unsigned int>(-1), "*"));
+        auto rootAccount = m_dataStore->MakeAccount("root", "", starDirectory,
+          boost::posix_time::second_clock::universal_time());
+        m_dataStore->SetPermissions(rootAccount, starDirectory,
+          static_cast<Permissions>(~0));
+      });
+    } catch(const std::exception&) {
+      Close();
+      BOOST_RETHROW;
+    }
+  }
 
   template<typename C, typename D>
   void ServiceLocatorServlet<C, D>::RegisterServices(
@@ -280,45 +298,12 @@ namespace Beam::ServiceLocator {
   }
 
   template<typename C, typename D>
-  void ServiceLocatorServlet<C, D>::Open() {
-    if(m_openState.SetOpening()) {
-      return;
-    }
-    try {
-      m_nextServiceId = 1;
-      m_dataStore->Open();
-      m_dataStore->WithTransaction(
-        [&] {
-          try {
-            m_dataStore->LoadDirectoryEntry(0);
-            return;
-          } catch(const ServiceLocatorDataStoreException&) {}
-          auto starDirectory = m_dataStore->MakeDirectory("*",
-            DirectoryEntry::MakeDirectory(static_cast<unsigned int>(-1), "*"));
-          auto rootAccount = m_dataStore->MakeAccount("root", "", starDirectory,
-            boost::posix_time::second_clock::universal_time());
-          m_dataStore->SetPermissions(rootAccount, starDirectory,
-            static_cast<Permissions>(~0));
-        });
-    } catch(const std::exception&) {
-      m_openState.SetOpenFailure();
-      Shutdown();
-    }
-    m_openState.SetOpen();
-  }
-
-  template<typename C, typename D>
   void ServiceLocatorServlet<C, D>::Close() {
     if(m_openState.SetClosing()) {
       return;
     }
-    Shutdown();
-  }
-
-  template<typename C, typename D>
-  void ServiceLocatorServlet<C, D>::Shutdown() {
     m_dataStore->Close();
-    m_openState.SetClosed();
+    m_openState.Close();
   }
 
   template<typename C, typename D>

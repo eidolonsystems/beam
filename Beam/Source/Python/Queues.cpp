@@ -45,14 +45,13 @@ void Beam::Python::ExportQueues(pybind11::module& module) {
     [] (QueueReader<object>& queue, list l) {
       try {
         while(true) {
-          auto value = queue.TryPop();
-          if(!value) {
+          auto value = [&] {
             auto release = GilRelease();
-            value = queue.Pop();
-          }
+            return queue.Pop();
+          }();
           l.append(std::move(value));
         }
-      } catch(const PipeBrokenException&) {}
+      } catch(const std::exception&) {}
     });
   register_exception<PipeBrokenException>(module, "PipeBrokenException");
 }
@@ -61,24 +60,28 @@ void Beam::Python::ExportRoutineTaskQueue(pybind11::module& module) {
   class_<RoutineTaskQueue, std::shared_ptr<RoutineTaskQueue>,
     QueueWriter<std::function<void ()>>>(module, "RoutineTaskQueue")
     .def(init())
+    .def("__del__",
+      [] (RoutineTaskQueue& self) {
+        self.Break();
+        self.Wait();
+      }, call_guard<GilRelease>())
     .def("get_slot",
-      [] (RoutineTaskQueue& self, object slot) {
+      [] (RoutineTaskQueue& self, SharedObject slot) {
         auto queue = self.GetSlot<SharedObject>(
-          [slot = SharedObject(std::move(slot))](const SharedObject& object) {
+          [=] (const SharedObject& object) {
             auto lock = GilLock();
             (*slot)(*object);
           });
         return MakeToPythonQueueWriter(std::move(queue));
       })
     .def("get_slot",
-      [] (RoutineTaskQueue& self, object slot, object breakSlot) {
+      [] (RoutineTaskQueue& self, SharedObject slot, SharedObject breakSlot) {
         auto queue = self.GetSlot<SharedObject>(
-          [slot = SharedObject(std::move(slot))](const SharedObject& object) {
+          [=](const SharedObject& object) {
             auto lock = GilLock();
             (*slot)(*object);
           },
-          [breakSlot = SharedObject(std::move(breakSlot))](
-              const std::exception_ptr& e) {
+          [=](const std::exception_ptr& e) {
             auto lock = GilLock();
             (*breakSlot)(e);
           });

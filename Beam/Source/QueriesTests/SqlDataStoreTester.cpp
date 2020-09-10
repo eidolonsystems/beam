@@ -30,18 +30,21 @@ namespace {
 
 TEST_SUITE("SqlDataStore") {
   TEST_CASE("store_and_load") {
-    auto readerPool = DatabaseConnectionPool<Sqlite3::Connection>();
-    auto writerPool = DatabaseConnectionPool<Sqlite3::Connection>();
-    auto connection = std::make_unique<Sqlite3::Connection>(PATH);
-    connection->open();
-    readerPool.Add(std::move(connection));
-    connection = std::make_unique<Sqlite3::Connection>(PATH);
-    connection->open();
-    writerPool.Add(std::move(connection));
+    auto readerPool = DatabaseConnectionPool<Sqlite3::Connection>(1,
+      [] {
+        auto connection = std::make_unique<Sqlite3::Connection>(PATH);
+        connection->open();
+        return connection;
+      });
+    auto writerPool = DatabaseConnectionPool<Sqlite3::Connection>(1,
+      [] {
+        auto connection = std::make_unique<Sqlite3::Connection>(PATH);
+        connection->open();
+        return connection;
+      });
     auto threadPool = ThreadPool();
     auto dataStore = DataStore("test", BuildValueRow(), BuildIndexRow(),
       Ref(readerPool), Ref(writerPool), Ref(threadPool));
-    dataStore.Open();
     auto timeClient = IncrementalTimeClient();
     auto sequence = Queries::Sequence(5);
     auto entryA = StoreValue(dataStore, "hello", 100, timeClient.GetTime(),
@@ -56,19 +59,21 @@ TEST_SUITE("SqlDataStore") {
     };
     using EmbeddedDataStore = SqlDataStore<Sqlite3::Connection, Row<TestEntry>,
       Row<int>, SqlTranslator>;
-    auto connectionPool = DatabaseConnectionPool<Sqlite3::Connection>();
-    auto readerPool = DatabaseConnectionPool<Sqlite3::Connection>();
-    auto writerPool = DatabaseConnectionPool<Sqlite3::Connection>();
-    auto connection = std::make_unique<Sqlite3::Connection>(PATH);
-    connection->open();
-    readerPool.Add(std::move(connection));
-    connection = std::make_unique<Sqlite3::Connection>(PATH);
-    connection->open();
-    writerPool.Add(std::move(connection));
+    auto readerPool = DatabaseConnectionPool<Sqlite3::Connection>(1,
+      [] {
+        auto connection = std::make_unique<Sqlite3::Connection>(PATH);
+        connection->open();
+        return connection;
+      });
+    auto writerPool = DatabaseConnectionPool<Sqlite3::Connection>(1,
+      [] {
+        auto connection = std::make_unique<Sqlite3::Connection>(PATH);
+        connection->open();
+        return connection;
+      });
     auto threadPool = ThreadPool();
     auto dataStore = EmbeddedDataStore("test", BuildValueRow(),
       BuildEmbeddedIndexRow(), Ref(readerPool), Ref(writerPool),
       Ref(threadPool));
-    dataStore.Open();
   }
 }

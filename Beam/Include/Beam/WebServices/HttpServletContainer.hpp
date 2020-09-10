@@ -10,7 +10,7 @@
 namespace Beam {
 namespace WebServices {
 namespace Details {
-  BEAM_DEFINE_HAS_METHOD(IsServletClass, Open, void);
+  BEAM_DEFINE_HAS_METHOD(IsServletClass, Close, void);
   template<typename ContainerType, typename ServletType,
     bool dummy = IsServletClass<ServletType>::value>
   struct GetServletHelper;
@@ -139,8 +139,6 @@ namespace Details {
 
       ~HttpServletContainer();
 
-      void Open();
-
       void Close();
 
     private:
@@ -161,12 +159,6 @@ namespace Details {
   HttpServletContainer<ServletType, ServerConnectionType>::
       ~HttpServletContainer() {
     Close();
-  }
-
-  template<typename ServletType, typename ServerConnectionType>
-  void HttpServletContainer<ServletType, ServerConnectionType>::Open() {
-    m_servlet->Open();
-    m_server->Open();
   }
 
   template<typename ServletType, typename ServerConnectionType>

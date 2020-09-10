@@ -41,18 +41,16 @@ namespace {
 
     LocalServiceLocatorDataStore m_dataStore;
     ServerConnection m_serverConnection;
-    std::optional<TestServiceProtocolServletContainer> m_container;
-    std::optional<ClientServiceProtocolClient> m_clientProtocol;
+    TestServiceProtocolServletContainer m_container;
+    optional<ClientServiceProtocolClient> m_clientProtocol;
 
-    Fixture() {
-      m_clientProtocol.emplace(Initialize("test", Ref(m_serverConnection)),
+    Fixture()
+        : m_container(Initialize(&m_dataStore), &m_serverConnection,
+            factory<std::shared_ptr<TriggerTimer>>()) {
+      m_clientProtocol.emplace(Initialize("test", m_serverConnection),
         Initialize());
       RegisterServiceLocatorServices(Store(m_clientProtocol->GetSlots()));
       RegisterServiceLocatorMessages(Store(m_clientProtocol->GetSlots()));
-      m_container.emplace(Initialize(&m_dataStore), &m_serverConnection,
-        factory<std::shared_ptr<TriggerTimer>>());
-      m_container->Open();
-      m_clientProtocol->Open();
     }
 
     DirectoryEntry CreateUser(const std::string& username,
@@ -78,10 +76,8 @@ namespace {
         const std::string& password, Out<DirectoryEntry> account,
         Out<std::string> sessionId,
         Out<std::optional<ClientServiceProtocolClient>> service) {
-      service->emplace(Initialize(std::string("test"), Ref(m_serverConnection)),
-        Initialize());
+      service->emplace(Initialize("test", m_serverConnection), Initialize());
       RegisterServiceLocatorServices(Store((*service)->GetSlots()));
-      (*service)->Open();
       CreateUser(username, password);
       auto result = (*service)->SendRequest<LoginService>(username, password);
       *account = result.account;

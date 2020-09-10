@@ -79,21 +79,19 @@ namespace Beam {
             (*callback)(std::forward<decltype(value)>(value));
           });
       },
-      [=, breakCallback = std::forward<B>(breakCallback)] (
-          const std::exception_ptr& e) {
-        m_tasks.Add(
-          [=, breakCallback = &breakCallback] {
-            (*breakCallback)(e);
-          });
+      [=, breakCallback = std::make_shared<std::remove_reference_t<B>>(
+          std::forward<B>(breakCallback))] (const std::exception_ptr& e) {
+        m_tasks.Add([=] {
+          (*breakCallback)(e);
+        });
       });
-    m_tasks.Add(
-      [=] () mutable {
-        if(m_isBroken) {
-          queue->Break(m_exception);
-        } else {
-          m_queues.push_back(std::move(queue));
-        }
-      });
+    m_tasks.Add([=] () mutable {
+      if(m_isBroken) {
+        queue->Break(m_exception);
+      } else {
+        m_queues.push_back(std::move(queue));
+      }
+    });
     return ScopedQueueWriter(std::move(queue));
   }
 
@@ -115,13 +113,12 @@ namespace Beam {
       }
       m_exception = exception;
     }
-    m_tasks.Add(
-      [=] {
-        m_isBroken = true;
-        for(auto& queue : m_queues) {
-          queue.Break(m_exception);
-        }
-      });
+    m_tasks.Add([=] {
+      m_isBroken = true;
+      for(auto& queue : m_queues) {
+        queue.Break(m_exception);
+      }
+    });
   }
 
   inline void CallbackQueue::Rethrow() {
