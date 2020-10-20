@@ -8,6 +8,7 @@
 #undef other
 #else
 #define BEAM_DISABLE_OPTIMIZATIONS
+#define BOOST_USE_VALGRIND
 #include <boost/context/continuation.hpp>
 #endif
 #include "Beam/Routines/Routine.hpp"

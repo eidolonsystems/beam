@@ -197,7 +197,7 @@ if [ ! -d "boost_1_72_0" ]; then
     pushd boost_1_72_0
     export BOOST_BUILD_PATH=$(pwd -P)
     ./bootstrap.sh
-    ./b2 -j$cores --prefix="$root/boost_1_72_0" cxxflags="-std=c++17 -fPIC" install
+    ./b2 -j$cores --prefix="$root/boost_1_72_0" valgrind=on cxxflags="-std=c++17 -fPIC" install
     popd
     unset BOOST_BUILD_PATH
   else
